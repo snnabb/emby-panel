@@ -1,11 +1,13 @@
-// EmbyHub Main App
 (function() {
   'use strict';
 
   const loginEl = document.getElementById('page-login');
   const shellEl = document.getElementById('app-shell');
+  const loginFooterEl = document.getElementById('login-footer');
+  const loginButtonEl = document.getElementById('btn-login');
+  let dashboardRefreshTimer = null;
+  let appBootstrapped = false;
 
-  // ========= Modal helpers =========
   window.openModal = function() {
     document.getElementById('modal-overlay').classList.add('active');
   };
@@ -20,7 +22,6 @@
 
   document.getElementById('modal-close').addEventListener('click', closeModal);
 
-  // ========= Auth flow =========
   async function checkAuth() {
     if (API.token) {
       enterApp();
@@ -31,19 +32,47 @@
       const res = await API.checkSetup();
       if (res.needs_setup) {
         showSetupMode();
+        return;
       }
     } catch (e) {
       // Server not available, just show login
     }
+
+    showLoginMode();
   }
 
   function showSetupMode() {
-    document.getElementById('btn-login').textContent = '注 册';
-    document.getElementById('login-footer').innerHTML = '首次使用，请创建管理员账号';
+    loginButtonEl.textContent = '注 册';
+    loginButtonEl.disabled = false;
+    loginFooterEl.textContent = '首次使用，请创建管理员账号';
     loginEl._isSetup = true;
   }
 
-  // Login form
+  function showLoginMode() {
+    loginButtonEl.textContent = '登 录';
+    loginButtonEl.disabled = false;
+    loginFooterEl.innerHTML = '首次使用？<a href="#" id="link-register">创建管理员账号</a>';
+    loginEl._isSetup = false;
+  }
+
+  function startDashboardRefresh() {
+    if (dashboardRefreshTimer) clearInterval(dashboardRefreshTimer);
+    dashboardRefreshTimer = setInterval(() => {
+      if (Router.current === 'dashboard') loadDashboardData();
+    }, 15000);
+  }
+
+  function stopDashboardRefresh() {
+    if (!dashboardRefreshTimer) return;
+    clearInterval(dashboardRefreshTimer);
+    dashboardRefreshTimer = null;
+  }
+
+  function teardownAppRuntime() {
+    stopDashboardRefresh();
+    if (typeof stopDashSSE === 'function') stopDashSSE();
+  }
+
   document.getElementById('loginForm').addEventListener('submit', async function(e) {
     e.preventDefault();
     const username = document.getElementById('inp-username').value.trim();
@@ -59,15 +88,14 @@
       return;
     }
 
-    const btn = document.getElementById('btn-login');
-    btn.disabled = true;
-    btn.textContent = '处理中...';
+    loginButtonEl.disabled = true;
+    loginButtonEl.textContent = '处理中...';
 
     try {
       let res;
       if (loginEl._isSetup) {
         res = await API.setup(username, password);
-        Toast.success('管理员创建成功！');
+        Toast.success('管理员创建成功');
       } else {
         res = await API.login(username, password);
         Toast.success('欢迎回来, ' + res.username + '!');
@@ -77,13 +105,14 @@
       enterApp();
     } catch (err) {
       Toast.error(err.message);
-      btn.disabled = false;
-      btn.textContent = loginEl._isSetup ? '注 册' : '登 录';
+      loginButtonEl.disabled = false;
+      loginButtonEl.textContent = loginEl._isSetup ? '注 册' : '登 录';
     }
   });
 
-  // Register link
-  document.getElementById('link-register').addEventListener('click', function(e) {
+  loginFooterEl.addEventListener('click', function(e) {
+    const registerLink = e.target.closest('#link-register');
+    if (!registerLink) return;
     e.preventDefault();
     showSetupMode();
   });
@@ -92,42 +121,33 @@
     loginEl.classList.add('hidden');
     shellEl.classList.add('active');
 
-    // Set avatar
     const avatar = document.getElementById('avatar-btn');
     avatar.textContent = (API.username || 'A')[0].toUpperCase();
 
-    // Register routes
-    Router.register('dashboard', renderDashboard);
-    Router.register('sites', renderSites);
-    Router.register('traffic', renderTraffic);
-    Router.register('diagnostics', renderDiag);
-    Router.init();
+    if (!appBootstrapped) {
+      Router.register('dashboard', renderDashboard);
+      Router.register('sites', renderSites);
+      Router.register('traffic', renderTraffic);
+      Router.register('diagnostics', renderDiag);
+      Router.init();
+      appBootstrapped = true;
+    }
 
-    // Initial navigation
     Router.resolve();
-
-    // Auto refresh
-    setInterval(() => {
-      if (Router.current === 'dashboard') loadDashboardData();
-    }, 15000);
+    startDashboardRefresh();
   }
 
-  // Logout
   document.getElementById('avatar-btn').addEventListener('click', function() {
-    if (confirm('确认退出登录？')) {
-      API.logout();
-      loginEl.classList.remove('hidden');
-      loginEl._isSetup = false;
-      shellEl.classList.remove('active');
-      document.getElementById('btn-login').textContent = '登 录';
-      document.getElementById('btn-login').disabled = false;
-      document.getElementById('login-footer').innerHTML = '首次使用？<a href="#" id="link-register">创建管理员账号</a>';
-      document.getElementById('inp-password').value = '';
-      Toast.info('已退出登录');
-    }
+    if (!confirm('确认退出登录？')) return;
+
+    teardownAppRuntime();
+    API.logout();
+    loginEl.classList.remove('hidden');
+    shellEl.classList.remove('active');
+    showLoginMode();
+    document.getElementById('inp-password').value = '';
+    Toast.info('已退出登录');
   });
 
-  // ========= Start =========
   checkAuth();
-
 })();

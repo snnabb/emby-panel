@@ -1,5 +1,6 @@
-// Dashboard page with SSE real-time updates
 let dashSSE = null;
+let dashAbortController = null;
+let dashRetryTimer = null;
 
 function renderDashboard() {
   const page = document.getElementById('page-dashboard');
@@ -25,7 +26,7 @@ function renderDashboard() {
         <div class="stat-icon-wrap teal">
           <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
         </div>
-        <div class="stat-number" id="s-traffic">—</div>
+        <div class="stat-number" id="s-traffic">0 B</div>
         <div class="stat-title">总流量</div>
       </div>
       <div class="stat-card c-orange fade-up stagger-4">
@@ -52,35 +53,35 @@ function renderDashboard() {
     </div>
   `;
 
-  // Start SSE connection
   startDashSSE();
-  // Also load sites for the table (SSE only has running proxies)
   loadDashboardTable();
 }
 
 function startDashSSE() {
   stopDashSSE();
-
-  const url = '/api/events';
-  dashSSE = new EventSource(url);
-
-  // Custom auth: EventSource doesn't support headers, so we pass token as query
-  // Actually, we need to close this and use fetch-based SSE since EventSource doesn't support auth headers
-  dashSSE.close();
-  dashSSE = null;
-
-  // Use fetch-based SSE with auth header
   startFetchSSE();
+}
+
+function queueDashSSERetry() {
+  if (dashRetryTimer) clearTimeout(dashRetryTimer);
+  dashRetryTimer = setTimeout(() => {
+    if (Router.current === 'dashboard' && API.token) startFetchSSE();
+  }, 5000);
 }
 
 async function startFetchSSE() {
   const statusEl = document.getElementById('sse-status');
+  const controller = new AbortController();
+  dashAbortController = controller;
+
   try {
     const resp = await fetch('/api/events', {
       headers: { 'Authorization': 'Bearer ' + API.token },
+      signal: controller.signal,
     });
 
     if (!resp.ok) throw new Error('SSE failed');
+    if (dashAbortController !== controller) return;
 
     if (statusEl) statusEl.style.color = 'var(--green)';
 
@@ -90,51 +91,53 @@ async function startFetchSSE() {
 
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done || controller.signal.aborted) break;
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
-      buffer = lines.pop(); // Keep incomplete line
+      buffer = lines.pop();
 
       for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(line.slice(6));
-            updateDashboardLive(data);
-          } catch (e) { /* skip bad JSON */ }
+        if (!line.startsWith('data: ')) continue;
+        try {
+          updateDashboardLive(JSON.parse(line.slice(6)));
+        } catch (e) {
+          // Skip malformed chunks and keep stream alive.
         }
       }
     }
+
+    if (!controller.signal.aborted && dashAbortController === controller && Router.current === 'dashboard') {
+      if (statusEl) statusEl.style.color = 'var(--red)';
+      queueDashSSERetry();
+    }
   } catch (e) {
+    if (controller.signal.aborted || dashAbortController !== controller) return;
     console.warn('SSE connection lost, retrying in 5s...', e);
     if (statusEl) statusEl.style.color = 'var(--red)';
-    // Retry after 5 seconds if still on dashboard
-    setTimeout(() => {
-      if (Router.current === 'dashboard') startFetchSSE();
-    }, 5000);
+    queueDashSSERetry();
   }
 }
 
 function updateDashboardLive(stats) {
-  // Update stat cards with smooth transitions
   animateValue('s-total', stats.total_sites || 0);
   animateValue('s-running', stats.running_sites || 0);
 
-  const el = document.getElementById('s-traffic');
-  if (el) el.textContent = formatBytes(stats.total_traffic || 0);
+  const trafficEl = document.getElementById('s-traffic');
+  if (trafficEl) trafficEl.textContent = formatBytes(stats.total_traffic || 0);
 
   const uptimeEl = document.getElementById('s-uptime');
   if (uptimeEl) uptimeEl.textContent = formatUptime(stats.uptime_seconds || 0);
 
-  const reqEl = document.getElementById('s-requests');
-  if (reqEl) reqEl.textContent = formatNumber(stats.total_requests || 0) + ' 请求';
+  const requestsEl = document.getElementById('s-requests');
+  if (requestsEl) requestsEl.textContent = formatNumber(stats.total_requests || 0) + ' 请求';
 }
 
 function formatUptime(seconds) {
   if (seconds < 60) return seconds + 's';
   if (seconds < 3600) return Math.floor(seconds / 60) + '分';
-  if (seconds < 86400) return Math.floor(seconds / 3600) + '时 ' + Math.floor((seconds % 3600) / 60) + '分';
-  return Math.floor(seconds / 86400) + '天 ' + Math.floor((seconds % 86400) / 3600) + '时';
+  if (seconds < 86400) return Math.floor(seconds / 3600) + '时' + Math.floor((seconds % 3600) / 60) + '分';
+  return Math.floor(seconds / 86400) + '天' + Math.floor((seconds % 86400) / 3600) + '时';
 }
 
 function formatNumber(n) {
@@ -144,7 +147,7 @@ function formatNumber(n) {
 function animateValue(id, newVal) {
   const el = document.getElementById(id);
   if (!el) return;
-  const current = parseInt(el.textContent) || 0;
+  const current = parseInt(el.textContent, 10) || 0;
   if (current === newVal) return;
   el.textContent = newVal;
   el.style.transition = 'transform .15s';
@@ -153,11 +156,18 @@ function animateValue(id, newVal) {
 }
 
 function stopDashSSE() {
+  if (dashRetryTimer) {
+    clearTimeout(dashRetryTimer);
+    dashRetryTimer = null;
+  }
+  if (dashAbortController) {
+    dashAbortController.abort();
+    dashAbortController = null;
+  }
   if (dashSSE) {
     dashSSE.close();
     dashSSE = null;
   }
-  // Abort fetch SSE by navigating away (handled by the reader breaking)
 }
 
 async function loadDashboardTable() {
@@ -186,13 +196,12 @@ async function loadDashboardTable() {
   }
 }
 
-// For loadDashboardData fallback (called by app.js auto-refresh)
 async function loadDashboardData() {
   loadDashboardTable();
 }
 
-const uaClassMap = { 'infuse': 'pill-blue', 'web': 'pill-green', 'client': 'pill-orange' };
-const uaNameMap = { 'infuse': 'Infuse', 'web': 'Web', 'client': '客户端' };
+const uaClassMap = { infuse: 'pill-blue', web: 'pill-green', client: 'pill-orange' };
+const uaNameMap = { infuse: 'Infuse', web: 'Web', client: '客户端' };
 
 function formatBytes(bytes) {
   if (!bytes || bytes === 0) return '0 B';
