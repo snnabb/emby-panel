@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -18,11 +20,13 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"os/signal"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -387,6 +391,7 @@ type ProxyInstance struct {
 	listener net.Listener
 	bytesIn  atomic.Int64
 	bytesOut atomic.Int64
+	reqCount atomic.Int64
 }
 
 type ProxyManager struct {
@@ -414,6 +419,21 @@ func (m *meteredWriter) Write(b []byte) (int, error) {
 	return n, err
 }
 
+// Flush support for streaming
+func (m *meteredWriter) Flush() {
+	if f, ok := m.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// Hijack support for WebSocket upgrade
+func (m *meteredWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if h, ok := m.ResponseWriter.(http.Hijacker); ok {
+		return h.Hijack()
+	}
+	return nil, nil, fmt.Errorf("hijack not supported")
+}
+
 // metered request body reader
 type meteredReader struct {
 	io.ReadCloser
@@ -424,6 +444,130 @@ func (m *meteredReader) Read(p []byte) (int, error) {
 	n, err := m.ReadCloser.Read(p)
 	m.read.Add(int64(n))
 	return n, err
+}
+
+// ── Rate-limited writer (token bucket) ──
+type rateLimitedWriter struct {
+	http.ResponseWriter
+	bytesPerSec int64
+	written     *atomic.Int64
+	start       time.Time
+}
+
+func (w *rateLimitedWriter) Write(b []byte) (int, error) {
+	if w.bytesPerSec <= 0 {
+		n, err := w.ResponseWriter.Write(b)
+		w.written.Add(int64(n))
+		return n, err
+	}
+	totalWritten := 0
+	for len(b) > 0 {
+		elapsed := time.Since(w.start).Seconds()
+		if elapsed < 0.001 {
+			elapsed = 0.001
+		}
+		allowed := int64(elapsed*float64(w.bytesPerSec)) - w.written.Load()
+		if allowed <= 0 {
+			time.Sleep(10 * time.Millisecond)
+			continue
+		}
+		chunk := b
+		if int64(len(chunk)) > allowed {
+			chunk = b[:allowed]
+		}
+		n, err := w.ResponseWriter.Write(chunk)
+		w.written.Add(int64(n))
+		totalWritten += n
+		b = b[n:]
+		if err != nil {
+			return totalWritten, err
+		}
+	}
+	return totalWritten, nil
+}
+
+func (w *rateLimitedWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (w *rateLimitedWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if h, ok := w.ResponseWriter.(http.Hijacker); ok {
+		return h.Hijack()
+	}
+	return nil, nil, fmt.Errorf("hijack not supported")
+}
+
+// ── WebSocket tunnel ──
+func isWebSocketUpgrade(r *http.Request) bool {
+	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
+}
+
+func handleWebSocket(w http.ResponseWriter, r *http.Request, target *url.URL, profile UAProfile, inst *ProxyInstance) {
+	// Build target WS URL
+	scheme := "ws"
+	if target.Scheme == "https" {
+		scheme = "wss"
+	}
+	targetURL := scheme + "://" + target.Host + r.URL.RequestURI()
+
+	// Hijack client connection
+	hj, ok := w.(http.Hijacker)
+	if !ok {
+		http.Error(w, "WebSocket not supported", 500)
+		return
+	}
+	clientConn, clientBuf, err := hj.Hijack()
+	if err != nil {
+		log.Printf("[WS] hijack error: %v", err)
+		return
+	}
+	defer clientConn.Close()
+
+	// Connect to upstream
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	var upstreamConn net.Conn
+	if scheme == "wss" {
+		upstreamConn, err = tls.DialWithDialer(dialer, "tcp", target.Host, &tls.Config{InsecureSkipVerify: true})
+	} else {
+		host := target.Host
+		if !strings.Contains(host, ":") {
+			host += ":80"
+		}
+		upstreamConn, err = dialer.Dial("tcp", host)
+	}
+	if err != nil {
+		log.Printf("[WS] upstream dial error: %v", err)
+		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+		return
+	}
+	defer upstreamConn.Close()
+
+	// Send upgrade request to upstream
+	reqLine := fmt.Sprintf("%s %s HTTP/1.1\r\n", r.Method, r.URL.RequestURI())
+	upstreamConn.Write([]byte(reqLine))
+	r.Header.Set("Host", target.Host)
+	r.Header.Set("User-Agent", profile.UserAgent)
+	r.Header.Write(upstreamConn)
+	upstreamConn.Write([]byte("\r\n"))
+
+	_ = targetURL
+	log.Printf("[WS] tunnel established: client <-> %s", target.Host)
+
+	// Bidirectional copy
+	done := make(chan struct{}, 2)
+	go func() {
+		n, _ := io.Copy(upstreamConn, clientBuf)
+		inst.bytesIn.Add(n)
+		done <- struct{}{}
+	}()
+	go func() {
+		n, _ := io.Copy(clientConn, upstreamConn)
+		inst.bytesOut.Add(n)
+		done <- struct{}{}
+	}()
+	<-done
 }
 
 func (pm *ProxyManager) StartSite(site Site) error {
@@ -479,13 +623,46 @@ func (pm *ProxyManager) StartSite(site Site) error {
 		},
 	}
 
+	// Speed limit in bytes/sec (field is in Mbps, 0 = unlimited)
+	speedLimitBytes := int64(site.SpeedLimit) * 125000 // Mbps -> bytes/sec
+
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Meter request body
+		inst.reqCount.Add(1)
+
+		// ── Traffic quota check ──
+		if site.TrafficQuota > 0 {
+			currentUsed := inst.Site.TrafficUsed + inst.bytesIn.Load() + inst.bytesOut.Load()
+			if currentUsed >= site.TrafficQuota {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				w.Write([]byte(`{"error":"流量额度已用尽"}`))
+				return
+			}
+		}
+
+		// ── WebSocket upgrade ──
+		if isWebSocketUpgrade(r) {
+			handleWebSocket(w, r, target, profile, inst)
+			return
+		}
+
+		// ── Normal proxy with metering ──
 		if r.Body != nil {
 			r.Body = &meteredReader{ReadCloser: r.Body, read: &inst.bytesIn}
 		}
-		mw := &meteredWriter{ResponseWriter: w, written: &inst.bytesOut}
-		proxy.ServeHTTP(mw, r)
+
+		var rw http.ResponseWriter
+		if speedLimitBytes > 0 {
+			rw = &rateLimitedWriter{
+				ResponseWriter: w,
+				bytesPerSec:    speedLimitBytes,
+				written:        &inst.bytesOut,
+				start:          time.Now(),
+			}
+		} else {
+			rw = &meteredWriter{ResponseWriter: w, written: &inst.bytesOut}
+		}
+		proxy.ServeHTTP(rw, r)
 	})
 
 	listenAddr := fmt.Sprintf(":%d", site.ListenPort)
@@ -560,6 +737,29 @@ func (pm *ProxyManager) GetRunningCount() int {
 	return len(pm.proxies)
 }
 
+// GracefulShutdown stops all proxies gracefully
+func (pm *ProxyManager) GracefulShutdown(ctx context.Context) {
+	pm.FlushTraffic()
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	for id, inst := range pm.proxies {
+		log.Printf("[%s] shutting down...", inst.Site.Name)
+		inst.server.Shutdown(ctx)
+		delete(pm.proxies, id)
+	}
+}
+
+// GetTotalRequests returns total request count across all proxies
+func (pm *ProxyManager) GetTotalRequests() int64 {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	var total int64
+	for _, inst := range pm.proxies {
+		total += inst.reqCount.Load()
+	}
+	return total
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Diagnostics
 // ═══════════════════════════════════════════════════════════════
@@ -594,9 +794,10 @@ type DiagHeaders struct {
 }
 
 type DiagProxy struct {
-	Running    bool  `json:"running"`
-	ListenPort int   `json:"listen_port"`
-	TotalReqs  int64 `json:"total_requests"`
+	Running    bool   `json:"running"`
+	ListenPort int    `json:"listen_port"`
+	TotalReqs  int64  `json:"total_requests"`
+	Uptime     string `json:"uptime,omitempty"`
 }
 
 func diagnoseSite(site *Site, pm *ProxyManager) DiagResult {
@@ -947,8 +1148,10 @@ func (a *App) handleUAProfiles(w http.ResponseWriter, r *http.Request) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Main
+// Main — with graceful shutdown
 // ═══════════════════════════════════════════════════════════════
+
+var startTime = time.Now()
 
 func main() {
 	port := 9090
@@ -988,11 +1191,20 @@ func main() {
 	pm := NewProxyManager(db)
 	pm.StartAllEnabled()
 
-	// Traffic flush goroutine
+	// Traffic flush goroutine with context
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	go func() {
 		ticker := time.NewTicker(60 * time.Second)
-		for range ticker.C {
-			pm.FlushTraffic()
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				pm.FlushTraffic()
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 
@@ -1034,7 +1246,6 @@ func main() {
 	fileServer := http.FileServer(http.FS(staticFS))
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// Try to serve static file
 		path := r.URL.Path
 		if path == "/" {
 			path = "/index.html"
@@ -1045,19 +1256,49 @@ func main() {
 			fileServer.ServeHTTP(w, r)
 			return
 		}
-		// SPA fallback
 		r.URL.Path = "/"
 		fileServer.ServeHTTP(w, r)
 	})
 
+	// HTTP server with graceful shutdown
 	addr := fmt.Sprintf(":%d", port)
+	srv := &http.Server{
+		Addr:         addr,
+		Handler:      mux,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 0, // no write timeout for streaming
+		IdleTimeout:  120 * time.Second,
+	}
+
 	log.Println("═══════════════════════════════════════════")
-	log.Println("  EmbyHub — Emby 反代控制面板")
+	log.Println("  EmbyHub — Emby 反代控制面板 v1.1")
 	log.Printf("  管理面板: http://0.0.0.0%s", addr)
 	log.Printf("  已加载 %d 个站点 (%d 运行中)", func() int { s, _ := db.ListSites(); return len(s) }(), pm.GetRunningCount())
+	log.Println("  WebSocket 代理: ✓  流量额度: ✓  限速: ✓")
 	log.Println("═══════════════════════════════════════════")
 
-	if err := http.ListenAndServe(addr, mux); err != nil {
-		log.Fatalf("服务启动失败: %v", err)
-	}
+	// Signal handling for graceful shutdown
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("服务启动失败: %v", err)
+		}
+	}()
+
+	<-sigCh
+	log.Println("\n收到关闭信号，正在优雅关停...")
+
+	// Cancel background goroutines
+	cancel()
+
+	// Shutdown proxies (flushes traffic)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer shutdownCancel()
+
+	pm.GracefulShutdown(shutdownCtx)
+	srv.Shutdown(shutdownCtx)
+
+	log.Println("EmbyHub 已安全关闭")
 }
