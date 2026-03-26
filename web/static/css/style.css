@@ -302,6 +302,14 @@ input, select { font-family: inherit; }
   margin-bottom: 36px;
 }
 
+.live-indicator {
+  font-size: .7rem;
+  font-weight: 600;
+  color: var(--green);
+  animation: pulse 2s infinite;
+  margin-left: 8px;
+}
+
 /* ============================================================
    Stats Cards
    ============================================================ */

@@ -1147,6 +1147,65 @@ func (a *App) handleUAProfiles(w http.ResponseWriter, r *http.Request) {
 	a.jsonOK(w, profiles)
 }
 
+// GET /api/events — Server-Sent Events stream
+func (a *App) handleSSE(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		a.jsonErr(w, 500, "SSE not supported")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	flusher.Flush()
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	ctx := r.Context()
+
+	// Send initial data immediately
+	a.sendSSEEvent(w, flusher)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			a.sendSSEEvent(w, flusher)
+		}
+	}
+}
+
+func (a *App) sendSSEEvent(w http.ResponseWriter, flusher http.Flusher) {
+	stats := a.db.DashboardStats()
+	stats["running_sites"] = a.pm.GetRunningCount()
+	stats["total_requests"] = a.pm.GetTotalRequests()
+	stats["uptime_seconds"] = int(time.Since(startTime).Seconds())
+
+	// Collect per-site live stats
+	a.pm.mu.RLock()
+	siteStats := make([]map[string]interface{}, 0)
+	for _, inst := range a.pm.proxies {
+		siteStats = append(siteStats, map[string]interface{}{
+			"id":        inst.Site.ID,
+			"name":      inst.Site.Name,
+			"bytes_in":  inst.bytesIn.Load(),
+			"bytes_out": inst.bytesOut.Load(),
+			"requests":  inst.reqCount.Load(),
+			"running":   true,
+		})
+	}
+	a.pm.mu.RUnlock()
+	stats["live_sites"] = siteStats
+
+	data, _ := json.Marshal(stats)
+	fmt.Fprintf(w, "data: %s\n\n", data)
+	flusher.Flush()
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Main — with graceful shutdown
 // ═══════════════════════════════════════════════════════════════
@@ -1237,6 +1296,7 @@ func main() {
 	mux.HandleFunc("/api/sites/", cors(app.authMiddleware(app.handleSiteByID)))
 	mux.HandleFunc("/api/traffic/", cors(app.authMiddleware(app.handleTraffic)))
 	mux.HandleFunc("/api/ua-profiles", cors(app.authMiddleware(app.handleUAProfiles)))
+	mux.HandleFunc("/api/events", cors(app.authMiddleware(app.handleSSE)))
 
 	// Embedded static files
 	staticFS, err := fs.Sub(web.StaticFiles, "static")
