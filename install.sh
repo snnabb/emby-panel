@@ -3,9 +3,9 @@ set -euo pipefail
 
 # Meridian — Emby reverse proxy management panel
 # Interactive installer / updater / uninstaller
-# Usage: bash <(curl -sL https://raw.githubusercontent.com/snnabb/meridian/master/install.sh)
+# Usage: bash <(curl -sL https://raw.githubusercontent.com/snnabb/Meridian/master/install.sh)
 
-REPO="snnabb/meridian"
+REPO="snnabb/Meridian"
 INSTALL_DIR="/usr/local/bin"
 DATA_DIR="/opt/meridian"
 SERVICE_FILE="/etc/systemd/system/meridian.service"
