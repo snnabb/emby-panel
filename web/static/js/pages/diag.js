@@ -103,12 +103,12 @@ async function runDiag() {
             <svg viewBox="0 0 24 24" style="stroke:var(--teal)"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
           </div>
           <div>
-            <div class="diag-title">请求头验证</div>
-            <div class="diag-subtitle">UA 伪装检测</div>
+            <div class="diag-title">请求头配置</div>
+            <div class="diag-subtitle">代理将使用的 UA / Client</div>
           </div>
         </div>
         <div class="diag-rows">
-          <div class="diag-row"><span class="diag-key">UA 伪装</span><span class="diag-val ${hd.ua_applied ? 'good' : 'bad'}">${hd.ua_applied ? '已生效' : '未生效'}</span></div>
+          <div class="diag-row"><span class="diag-key">UA 改写</span><span class="diag-val ${hd.ua_applied ? 'good' : 'bad'}">${hd.ua_applied ? '已配置' : '未配置'}</span></div>
           <div class="diag-row"><span class="diag-key">当前 UA</span><span class="diag-val" style="font-size:.72rem">${esc(hd.current_ua)}</span></div>
           <div class="diag-row"><span class="diag-key">Client 字段</span><span class="diag-val">${esc(hd.client_field)}</span></div>
         </div>

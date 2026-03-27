@@ -100,6 +100,72 @@ func TestTLSIssuerNameFallsBackSafely(t *testing.T) {
 	}
 }
 
+func TestDiagnoseSiteUsesRootSystemInfoProbe(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/System/Info/Public" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"Version":"4.8.0.80"}`))
+	}))
+	defer server.Close()
+
+	app := newTestApp(t)
+	site, err := app.db.CreateSite("diag", freePort(t), server.URL, "", "infuse", 0, 0)
+	if err != nil {
+		t.Fatalf("CreateSite: %v", err)
+	}
+
+	result := diagnoseSite(site, app.pm)
+	if result.Health.Status != "online" {
+		t.Fatalf("health.status = %q, want online (error=%q)", result.Health.Status, result.Health.Error)
+	}
+	if result.Health.EmbyVer != "4.8.0.80" {
+		t.Fatalf("emby_version = %q, want 4.8.0.80", result.Health.EmbyVer)
+	}
+}
+
+func TestDiagnoseSiteTreatsReachable4xxAsOnline(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "blocked", http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	app := newTestApp(t)
+	site, err := app.db.CreateSite("diag", freePort(t), server.URL, "", "infuse", 0, 0)
+	if err != nil {
+		t.Fatalf("CreateSite: %v", err)
+	}
+
+	result := diagnoseSite(site, app.pm)
+	if result.Health.Status != "online" {
+		t.Fatalf("health.status = %q, want online (error=%q)", result.Health.Status, result.Health.Error)
+	}
+	if result.Health.Error != "" {
+		t.Fatalf("health.error = %q, want empty for reachable upstream", result.Health.Error)
+	}
+}
+
+func TestApplyUAProfileHeadersRewritesClientIdentity(t *testing.T) {
+	header := http.Header{}
+	header.Set("User-Agent", "OldUA/1.0")
+	header.Set("X-Emby-Authorization", `MediaBrowser Client="Old Client", Device="TV"`)
+	header.Set("Authorization", `MediaBrowser Client="Old Client", Device="TV"`)
+
+	applyUAProfileHeaders(header, uaProfiles["client"])
+
+	if got := header.Get("User-Agent"); got != uaProfiles["client"].UserAgent {
+		t.Fatalf("User-Agent = %q, want %q", got, uaProfiles["client"].UserAgent)
+	}
+	if got := header.Get("X-Emby-Authorization"); !strings.Contains(got, `Client="Emby Theater"`) {
+		t.Fatalf("X-Emby-Authorization = %q", got)
+	}
+	if got := header.Get("Authorization"); !strings.Contains(got, `Client="Emby Theater"`) {
+		t.Fatalf("Authorization = %q", got)
+	}
+}
+
 func TestHandleSitesCreateRollsBackOnStartFailure(t *testing.T) {
 	app := newTestApp(t)
 	occupied, err := net.Listen("tcp", "127.0.0.1:0")

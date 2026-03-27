@@ -22,6 +22,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -634,6 +635,22 @@ func upstreamTargetForRequest(r *http.Request, apiTarget, playbackTarget *url.UR
 	return apiTarget
 }
 
+func applyUAProfileHeaders(header http.Header, profile UAProfile) {
+	header.Set("User-Agent", profile.UserAgent)
+	if auth := header.Get("X-Emby-Authorization"); auth != "" {
+		if embyAuthClientRe.MatchString(auth) {
+			auth = embyAuthClientRe.ReplaceAllString(auth, `${1}`+profile.Client+`"`)
+		}
+		header.Set("X-Emby-Authorization", auth)
+	}
+	if auth := header.Get("Authorization"); auth != "" {
+		if embyAuthClientRe.MatchString(auth) {
+			auth = embyAuthClientRe.ReplaceAllString(auth, `${1}`+profile.Client+`"`)
+		}
+		header.Set("Authorization", auth)
+	}
+}
+
 func handleWebSocket(w http.ResponseWriter, r *http.Request, target *url.URL, profile UAProfile, inst *ProxyInstance) {
 	// Build target WS URL
 	scheme := "ws"
@@ -682,7 +699,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, target *url.URL, pr
 	reqLine := fmt.Sprintf("%s %s HTTP/1.1\r\n", r.Method, r.URL.RequestURI())
 	upstreamConn.Write([]byte(reqLine))
 	r.Header.Set("Host", target.Host)
-	r.Header.Set("User-Agent", profile.UserAgent)
+	applyUAProfileHeaders(r.Header, profile)
 	r.Header.Write(upstreamConn)
 	upstreamConn.Write([]byte("\r\n"))
 
@@ -727,19 +744,7 @@ func (pm *ProxyManager) StartSite(site Site) error {
 			req.URL.Scheme = upstream.Scheme
 			req.URL.Host = upstream.Host
 			req.Host = upstream.Host
-			req.Header.Set("User-Agent", profile.UserAgent)
-			if auth := req.Header.Get("X-Emby-Authorization"); auth != "" {
-				if embyAuthClientRe.MatchString(auth) {
-					auth = embyAuthClientRe.ReplaceAllString(auth, `${1}`+profile.Client+`"`)
-				}
-				req.Header.Set("X-Emby-Authorization", auth)
-			}
-			if auth := req.Header.Get("Authorization"); auth != "" {
-				if embyAuthClientRe.MatchString(auth) {
-					auth = embyAuthClientRe.ReplaceAllString(auth, `${1}`+profile.Client+`"`)
-				}
-				req.Header.Set("Authorization", auth)
-			}
+			applyUAProfileHeaders(req.Header, profile)
 		},
 		ModifyResponse: func(resp *http.Response) error {
 			resp.Header.Del("X-Frame-Options")
@@ -970,40 +975,102 @@ func tlsIssuerName(cert *x509.Certificate) string {
 	return cert.Issuer.String()
 }
 
+func healthProbeURLs(target *url.URL) []string {
+	basePath := strings.TrimSpace(target.Path)
+	var suffixes []string
+	if basePath == "" || basePath == "/" {
+		suffixes = []string{"System/Info/Public", "emby/System/Info/Public", ""}
+	} else {
+		suffixes = []string{"System/Info/Public", ""}
+	}
+
+	seen := map[string]struct{}{}
+	urls := make([]string, 0, len(suffixes))
+	for _, suffix := range suffixes {
+		probe := *target
+		probe.RawQuery = ""
+		probe.Fragment = ""
+		if suffix == "" {
+			cleanPath := path.Clean("/" + strings.Trim(basePath, "/"))
+			if cleanPath == "." || cleanPath == "" {
+				cleanPath = "/"
+			}
+			probe.Path = cleanPath
+		} else {
+			probe.Path = path.Clean("/" + path.Join(strings.Trim(basePath, "/"), suffix))
+		}
+		if _, ok := seen[probe.String()]; ok {
+			continue
+		}
+		seen[probe.String()] = struct{}{}
+		urls = append(urls, probe.String())
+	}
+	return urls
+}
+
+func probeSiteHealth(targetURL string) DiagHealth {
+	target, err := normalizeTargetURL(targetURL)
+	if err != nil {
+		return DiagHealth{Status: "offline", Error: err.Error()}
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	reachable := false
+	var reachableLatency int64
+	var serverError string
+	var serverErrorLatency int64
+
+	for _, probeURL := range healthProbeURLs(target) {
+		start := time.Now()
+		resp, err := client.Get(probeURL)
+		latency := time.Since(start).Milliseconds()
+		if err != nil {
+			return DiagHealth{Status: "offline", LatencyMs: latency, Error: err.Error()}
+		}
+
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		resp.Body.Close()
+
+		if resp.StatusCode >= 500 {
+			serverError = fmt.Sprintf("probe returned HTTP %d", resp.StatusCode)
+			serverErrorLatency = latency
+			continue
+		}
+
+		health := DiagHealth{Status: "online", LatencyMs: latency}
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			var info map[string]interface{}
+			if json.Unmarshal(body, &info) == nil {
+				if v, ok := info["Version"]; ok {
+					health.EmbyVer = fmt.Sprintf("%v", v)
+				}
+			}
+			return health
+		}
+
+		if !reachable {
+			reachable = true
+			reachableLatency = latency
+		}
+	}
+
+	if reachable {
+		return DiagHealth{Status: "online", LatencyMs: reachableLatency}
+	}
+	if serverError != "" {
+		return DiagHealth{Status: "error", LatencyMs: serverErrorLatency, Error: serverError}
+	}
+	return DiagHealth{Status: "offline", Error: "health probe failed"}
+}
+
 func diagnoseSite(site *Site, pm *ProxyManager) DiagResult {
 	result := DiagResult{}
 	profile := getUAProfile(site.UAMode)
 
-	// Health check
-	addr := site.TargetURL
-	if !strings.Contains(addr, "://") {
-		addr = "http://" + addr
-	}
-
-	client := &http.Client{Timeout: 5 * time.Second}
-	start := time.Now()
-	resp, err := client.Get(addr + "/emby/System/Info/Public")
-	latency := time.Since(start).Milliseconds()
-
-	if err != nil {
-		result.Health = DiagHealth{Status: "offline", LatencyMs: latency, Error: err.Error()}
-	} else {
-		defer resp.Body.Close()
-		result.Health = DiagHealth{Status: "online", LatencyMs: latency}
-		if resp.StatusCode >= 400 {
-			result.Health.Status = "error"
-		}
-		var info map[string]interface{}
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		if json.Unmarshal(body, &info) == nil {
-			if v, ok := info["Version"]; ok {
-				result.Health.EmbyVer = fmt.Sprintf("%v", v)
-			}
-		}
-	}
+	result.Health = probeSiteHealth(site.TargetURL)
 
 	// TLS check
-	parsed, _ := url.Parse(addr)
+	parsed, _ := normalizeTargetURL(site.TargetURL)
 	if parsed != nil && parsed.Scheme == "https" {
 		result.TLS.Enabled = true
 		host := parsed.Hostname()

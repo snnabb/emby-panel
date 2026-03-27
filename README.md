@@ -56,6 +56,9 @@ go build -o emby-panel .
 - Traffic accounting now stays consistent across periodic flush, stop, delete, and restart flows.
 - Site create, toggle, and update operations now return real startup failures and roll back cleanly when a proxy cannot bind or restart.
 - Sites can optionally set a separate playback upstream. When configured, streaming paths such as `/Videos/...`, `/Audio/...`, and direct media downloads can route to that playback origin while the panel and regular API calls keep using the main upstream.
+- Diagnostics treat a reachable upstream as healthy even when a probe returns `401/403/404`, which avoids false alarms on origins that block `System/Info/Public` but still proxy playback and API traffic correctly.
+- TLS diagnostics inspect the HTTPS certificate presented by the configured upstream `target_url`, not the admin panel's own listening port.
+- Header diagnostics show the UA / `Client="..."` values that EmbyHub will send upstream. This confirms local proxy configuration, not a remote echo from the origin server.
 
 ## Screenshots
 
