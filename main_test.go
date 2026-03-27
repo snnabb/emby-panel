@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -141,7 +142,7 @@ func TestHandleSiteToggleRevertsWhenStartFails(t *testing.T) {
 	}
 	defer occupied.Close()
 
-	site, err := app.db.CreateSite("disabled", port, "http://127.0.0.1:8096", "infuse", 0, 0)
+	site, err := app.db.CreateSite("disabled", port, "http://127.0.0.1:8096", "", "infuse", 0, 0)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}
@@ -169,7 +170,7 @@ func TestHandleSiteToggleRevertsWhenStartFails(t *testing.T) {
 func TestHandleSiteUpdateRollsBackOnStartFailure(t *testing.T) {
 	app := newTestApp(t)
 	initialPort := freePort(t)
-	site, err := app.db.CreateSite("stable", initialPort, "http://127.0.0.1:8096", "infuse", 0, 0)
+	site, err := app.db.CreateSite("stable", initialPort, "http://127.0.0.1:8096", "", "infuse", 0, 0)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}
@@ -213,7 +214,7 @@ func TestHandleSiteUpdateRollsBackOnStartFailure(t *testing.T) {
 
 func TestFlushTrafficUpdatesBaselineAndStopPersistsPendingUsage(t *testing.T) {
 	app := newTestApp(t)
-	site, err := app.db.CreateSite("traffic", freePort(t), "http://127.0.0.1:8096", "infuse", 1024, 0)
+	site, err := app.db.CreateSite("traffic", freePort(t), "http://127.0.0.1:8096", "", "infuse", 1024, 0)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}
@@ -243,7 +244,7 @@ func TestFlushTrafficUpdatesBaselineAndStopPersistsPendingUsage(t *testing.T) {
 
 func TestAddTrafficAggregatesSameHour(t *testing.T) {
 	app := newTestApp(t)
-	site, err := app.db.CreateSite("aggregate", freePort(t), "http://127.0.0.1:8096", "infuse", 0, 0)
+	site, err := app.db.CreateSite("aggregate", freePort(t), "http://127.0.0.1:8096", "", "infuse", 0, 0)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}
@@ -263,6 +264,106 @@ func TestAddTrafficAggregatesSameHour(t *testing.T) {
 	}
 }
 
+func TestHandleSitesCreatePersistsPlaybackTargetURL(t *testing.T) {
+	app := newTestApp(t)
+
+	body := strings.NewReader(`{"name":"split","listen_port":` + jsonNumber(freePort(t)) + `,"target_url":"http://127.0.0.1:8096","playback_target_url":"https://media.example.com","ua_mode":"infuse"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/sites", body)
+	rr := httptest.NewRecorder()
+
+	app.handleSites(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	var site Site
+	if err := json.Unmarshal(rr.Body.Bytes(), &site); err != nil {
+		t.Fatalf("decode site: %v body=%s", err, rr.Body.String())
+	}
+	if site.PlaybackTargetURL != "https://media.example.com" {
+		t.Fatalf("playback_target_url = %q, want %q", site.PlaybackTargetURL, "https://media.example.com")
+	}
+
+	reloaded, err := app.db.GetSite(site.ID)
+	if err != nil {
+		t.Fatalf("GetSite: %v", err)
+	}
+	if reloaded.PlaybackTargetURL != "https://media.example.com" {
+		t.Fatalf("persisted playback_target_url = %q, want %q", reloaded.PlaybackTargetURL, "https://media.example.com")
+	}
+}
+
+func TestProxyRoutesPlaybackRequestsToPlaybackTarget(t *testing.T) {
+	app := newTestApp(t)
+
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("api:" + r.URL.Path))
+	}))
+	defer apiServer.Close()
+
+	playbackServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("playback:" + r.URL.Path))
+	}))
+	defer playbackServer.Close()
+
+	site, err := app.db.CreateSite("split", freePort(t), apiServer.URL, playbackServer.URL, "infuse", 0, 0)
+	if err != nil {
+		t.Fatalf("CreateSite: %v", err)
+	}
+	if err := app.pm.StartSite(*site); err != nil {
+		t.Fatalf("StartSite: %v", err)
+	}
+	t.Cleanup(func() { app.pm.StopSite(site.ID) })
+
+	mainResp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/System/Info", site.ListenPort))
+	if err != nil {
+		t.Fatalf("GET main route: %v", err)
+	}
+	defer mainResp.Body.Close()
+
+	playbackResp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/emby/Videos/123/stream", site.ListenPort))
+	if err != nil {
+		t.Fatalf("GET playback route: %v", err)
+	}
+	defer playbackResp.Body.Close()
+
+	if body := mustReadBody(t, mainResp); !strings.Contains(body, "api:/System/Info") {
+		t.Fatalf("main route body = %q", body)
+	}
+	if body := mustReadBody(t, playbackResp); !strings.Contains(body, "playback:/emby/Videos/123/stream") {
+		t.Fatalf("playback route body = %q", body)
+	}
+}
+
+func TestProxyPlaybackRequestsFallBackToMainTarget(t *testing.T) {
+	app := newTestApp(t)
+
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("api:" + r.URL.Path))
+	}))
+	defer apiServer.Close()
+
+	site, err := app.db.CreateSite("single", freePort(t), apiServer.URL, "", "infuse", 0, 0)
+	if err != nil {
+		t.Fatalf("CreateSite: %v", err)
+	}
+	if err := app.pm.StartSite(*site); err != nil {
+		t.Fatalf("StartSite: %v", err)
+	}
+	t.Cleanup(func() { app.pm.StopSite(site.ID) })
+
+	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/Videos/42/stream", site.ListenPort))
+	if err != nil {
+		t.Fatalf("GET fallback playback route: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if body := mustReadBody(t, resp); !strings.Contains(body, "api:/Videos/42/stream") {
+		t.Fatalf("fallback playback body = %q", body)
+	}
+}
+
 func lenMust(sites []Site, err error) int {
 	if err != nil {
 		panic(err)
@@ -276,4 +377,14 @@ func jsonNumber(v int) string {
 
 func jsonNumber64(v int64) string {
 	return strconv.FormatInt(v, 10)
+}
+
+func mustReadBody(t *testing.T, resp *http.Response) string {
+	t.Helper()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	return string(body)
 }

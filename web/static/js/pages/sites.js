@@ -46,6 +46,12 @@ async function loadSites() {
             <span class="site-row-label">回源地址</span>
             <span class="mono">${esc(s.target_url)}</span>
           </div>
+          ${s.playback_target_url ? `
+          <div class="site-row">
+            <span class="site-row-label">播放地址</span>
+            <span class="mono">${esc(s.playback_target_url)}</span>
+          </div>
+          ` : ''}
           <div class="site-row">
             <span class="site-row-label">监听端口</span>
             <span class="mono">:${s.listen_port}</span>
@@ -98,6 +104,10 @@ function showSiteModal(site) {
       <input type="text" class="form-input" id="m-target" value="${isEdit ? esc(site.target_url) : ''}" placeholder="如：192.168.1.10:8096 或 https://emby.example.com" required>
     </div>
     <div class="form-group">
+      <label>播放地址（可选）</label>
+      <input type="text" class="form-input" id="m-playback-target" value="${isEdit ? esc(site.playback_target_url || '') : ''}" placeholder="如播放流、转码流、直链资源单独走的地址">
+    </div>
+    <div class="form-group">
       <label>监听端口</label>
       <input type="number" class="form-input" id="m-port" value="${isEdit ? site.listen_port : ''}" placeholder="如：8001" required>
     </div>
@@ -124,6 +134,7 @@ function showSiteModal(site) {
     const data = {
       name: document.getElementById('m-name').value.trim(),
       target_url: document.getElementById('m-target').value.trim(),
+      playback_target_url: document.getElementById('m-playback-target').value.trim(),
       listen_port: parseInt(document.getElementById('m-port').value),
       ua_mode: document.getElementById('m-ua').value,
       traffic_quota: parseInt(document.getElementById('m-quota').value || 0) * 1073741824,

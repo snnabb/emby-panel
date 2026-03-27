@@ -9,6 +9,7 @@ Lightweight Emby reverse proxy management panel with a single-file Go backend an
 ## Features
 
 - Per-site Emby reverse proxy management
+- Optional split upstreams per site: one for web/API, one for playback traffic
 - Three UA profiles: `Infuse`, `Web`, `Client`
 - Traffic metering, speed limits, and traffic quota enforcement
 - WebSocket proxy support
@@ -54,6 +55,7 @@ go build -o emby-panel .
 - For production or any persistent deployment, set `JWT_SECRET` explicitly so login sessions survive restarts.
 - Traffic accounting now stays consistent across periodic flush, stop, delete, and restart flows.
 - Site create, toggle, and update operations now return real startup failures and roll back cleanly when a proxy cannot bind or restart.
+- Sites can optionally set a separate playback upstream. When configured, streaming paths such as `/Videos/...`, `/Audio/...`, and direct media downloads can route to that playback origin while the panel and regular API calls keep using the main upstream.
 
 ## Screenshots
 
