@@ -4,7 +4,7 @@
 
 ## 开发环境
 
-- Go 1.23+
+- Go 1.26+
 - 无 CGO 依赖（SQLite 使用纯 Go 实现 `modernc.org/sqlite`）
 
 ```bash
@@ -24,10 +24,10 @@ go test ./...
 ## 提交 PR 的流程
 
 1. Fork 仓库
-2. 从 `main` 分支创建你的特性分支
+2. 从 `master` 分支创建你的特性分支
 3. 修改代码
 4. 确保 `go test ./...` 通过
-5. 确保 `go build` 能正常编译
+5. 确保 `go build -o meridian .` 能正常编译
 6. 提交 PR，使用 [PR 模板](.github/PULL_REQUEST_TEMPLATE.md) 填写说明
 
 ## 提交规范

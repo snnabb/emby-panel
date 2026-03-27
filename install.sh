@@ -43,7 +43,7 @@ detect_platform() {
 
 # ─── Get latest version tag ───
 get_latest_version() {
-    curl -sL "https://api.github.com/repos/${REPO}/releases/latest" \
+    curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null \
         | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"//;s/".*//'
 }
 
@@ -67,7 +67,7 @@ do_install() {
     info "获取最新版本..."
     version=$(get_latest_version)
     if [ -z "$version" ]; then
-        fail "无法获取最新版本，请检查网络"
+        fail "当前仓库还没有可用的 GitHub Release。请先从 Releases 页面下载，或改用 Docker / 源码构建。"
     fi
     ok "最新版本: $version"
 
