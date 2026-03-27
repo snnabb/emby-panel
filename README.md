@@ -1,10 +1,22 @@
+<div align="center">
+
 # EmbyHub
 
-轻量级 Emby 反向代理管理面板。单文件 Go 后端 + 嵌入式 SPA 前端，开箱即用。
+轻量级 Emby 反向代理管理面板
+单文件 Go 后端 + 嵌入式 SPA 前端，开箱即用
 
-<p align="center">
-  <img src="docs/dashboard.png" width="800" alt="仪表盘">
-</p>
+[![Go](https://img.shields.io/badge/Go-1.23+-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![SQLite](https://img.shields.io/badge/SQLite-embedded-003B57?logo=sqlite&logoColor=white)](https://pkg.go.dev/modernc.org/sqlite)
+[![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)](https://github.com/snnabb/emby-panel/pkgs/container/emby-panel)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+</div>
+
+## 界面预览
+
+| 仪表盘 | 站点管理 | 故障诊断 |
+|:---:|:---:|:---:|
+| ![仪表盘](docs/dashboard.png) | ![站点管理](docs/sites.png) | ![故障诊断](docs/diagnostics.png) |
 
 ## 这是什么
 
@@ -14,15 +26,110 @@ EmbyHub 把这些事情打包成一个单二进制程序，带管理界面，带
 
 ## 核心特性
 
-- **多站点反代管理** — 每个站点独立监听端口，独立配置上游地址
-- **双上游分流** — 网页/API 和播放/转码流量可以分别指向不同的上游服务器
-- **UA 伪装** — 3 种预设（Infuse / Web / 客户端），HTTP 和 WebSocket 请求头统一改写
-- **流量计量与管控** — 按站点统计流量、设置限速、设置流量配额
-- **WebSocket 代理** — 完整支持 Emby 的 WebSocket 通信
-- **SSE 实时推送** — 仪表盘数据通过 Server-Sent Events 实时更新
-- **故障诊断** — 回源健康检测、上游 TLS 证书检查、请求头配置预览
-- **JWT 认证** — 管理面板使用 JWT Bearer Token 认证，密码 bcrypt 存储
-- **单二进制部署** — 前端静态资源嵌入 Go 二进制，SQLite 做持久化，无外部依赖
+| 功能 | 说明 |
+|------|------|
+| **多站点反代** | 每个站点独立监听端口，独立配置上游地址 |
+| **双上游分流** | 网页/API 和播放/转码流量可分别指向不同上游 |
+| **UA 伪装** | 3 种预设（Infuse / Web / 客户端），HTTP + WebSocket 统一改写 |
+| **流量管控** | 按站点统计流量、设置限速、设置配额 |
+| **WebSocket 代理** | 完整支持 Emby 的 WebSocket 通信 |
+| **SSE 实时推送** | 仪表盘数据通过 Server-Sent Events 实时更新 |
+| **故障诊断** | 回源健康检测、上游 TLS 证书检查、请求头预览 |
+| **JWT 认证** | Bearer Token 认证，密码 bcrypt 存储 |
+| **单二进制部署** | 前端嵌入二进制，SQLite 持久化，无外部依赖 |
+
+---
+
+## 一键部署
+
+### Docker（推荐）
+
+```bash
+docker run -d --name embyhub \
+  -p 9090:9090 -p 8001-8010:8001-8010 \
+  -v embyhub-data:/app/data \
+  -e JWT_SECRET=$(openssl rand -hex 32) \
+  ghcr.io/snnabb/emby-panel:latest
+```
+
+部署完成后访问 `http://你的IP:9090`，首次打开会引导设置管理员密码。
+
+> `8001-8010` 是反代站点监听端口范围，按实际需要调整。
+
+### 二进制直接运行
+
+**Linux / macOS：**
+
+```bash
+# 下载（以 linux-amd64 为例，按需替换平台）
+curl -Lo emby-panel https://github.com/snnabb/emby-panel/releases/latest/download/emby-panel-linux-amd64
+chmod +x emby-panel
+
+# 启动
+JWT_SECRET=$(openssl rand -hex 32) ./emby-panel
+```
+
+**Windows (PowerShell)：**
+
+```powershell
+# 下载
+Invoke-WebRequest -Uri "https://github.com/snnabb/emby-panel/releases/latest/download/emby-panel-windows-amd64.exe" -OutFile "emby-panel.exe"
+
+# 启动
+$env:JWT_SECRET = -join ((1..32) | ForEach-Object { '{0:x2}' -f (Get-Random -Max 256) })
+.\emby-panel.exe
+```
+
+### 从源码构建
+
+```bash
+git clone https://github.com/snnabb/emby-panel.git && cd emby-panel
+go build -o emby-panel .
+JWT_SECRET=$(openssl rand -hex 32) ./emby-panel
+```
+
+默认监听 `http://localhost:9090`。
+
+---
+
+## 配置
+
+### 命令行参数
+
+```bash
+./emby-panel                          # 默认 :9090，数据库在当前目录
+./emby-panel --port 8080              # 自定义端口
+./emby-panel --db /data/emby-panel.db # 自定义数据库路径
+```
+
+### 环境变量
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `PORT` | `9090` | 管理面板监听端口 |
+| `DB_PATH` | `emby-panel.db` | SQLite 数据库路径 |
+| `JWT_SECRET` | 进程启动时随机生成 | JWT 签名密钥。**生产环境必须显式设置**，否则每次重启后会话全部失效 |
+
+### Docker Compose
+
+```yaml
+services:
+  embyhub:
+    image: ghcr.io/snnabb/emby-panel:latest
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+      - "8001-8010:8001-8010"
+    volumes:
+      - embyhub-data:/app/data
+    environment:
+      - JWT_SECRET=your-secret-here  # 替换为一个固定随机字符串
+
+volumes:
+  embyhub-data:
+```
+
+---
 
 ## 技术架构
 
@@ -45,17 +152,19 @@ EmbyHub 把这些事情打包成一个单二进制程序，带管理界面，带
 └─────────────────────────────────────────────┘
 ```
 
-- **后端**：单文件 Go（`main.go`），使用标准库 `net/http`
-- **前端**：原生 HTML/CSS/JS SPA，hash 路由，通过 `embed.FS` 嵌入二进制
-- **数据库**：`modernc.org/sqlite`（纯 Go SQLite 实现，无 CGO 依赖）
-- **认证**：自实现 HMAC-SHA256 JWT，无第三方 JWT 库
+| 组件 | 技术选型 |
+|------|---------|
+| 后端 | 单文件 Go（`main.go`），标准库 `net/http` |
+| 前端 | 原生 HTML/CSS/JS SPA，hash 路由，`embed.FS` 嵌入 |
+| 数据库 | `modernc.org/sqlite`（纯 Go，无 CGO） |
+| 认证 | 自实现 HMAC-SHA256 JWT |
 
-## 项目结构
+### 项目结构
 
 ```
 emby-panel/
 ├── main.go              # 全部后端逻辑（API、反代引擎、诊断、认证）
-├── main_test.go          # 测试
+├── main_test.go
 ├── web/
 │   ├── embed.go          # Go embed 入口
 │   └── static/
@@ -65,167 +174,62 @@ emby-panel/
 ├── Dockerfile            # 多阶段构建
 ├── go.mod / go.sum
 └── .github/workflows/
-    └── release.yml       # CI：多平台构建 + Docker 推送 + GitHub Release
+    └── release.yml       # CI：多平台构建 + Docker 推送 + Release
 ```
 
-## 快速开始
-
-### 从源码构建
-
-```bash
-git clone https://github.com/EmbyHub/emby-panel.git
-cd emby-panel
-go build -o emby-panel .
-./emby-panel
-```
-
-默认监听 `http://localhost:9090`，首次访问会引导设置管理员密码。
-
-### 命令行参数
-
-```bash
-./emby-panel                          # 默认 :9090，数据库在当前目录
-./emby-panel --port 8080              # 自定义端口
-./emby-panel --db /data/emby-panel.db # 自定义数据库路径
-```
-
-## 环境变量
-
-| 变量 | 默认值 | 说明 |
-| --- | --- | --- |
-| `PORT` | `9090` | 管理面板监听端口 |
-| `DB_PATH` | `emby-panel.db` | SQLite 数据库路径 |
-| `JWT_SECRET` | 进程启动时随机生成 | JWT 签名密钥。**生产环境必须显式设置**，否则每次重启后已有登录会话全部失效 |
-
-## Docker 部署
-
-### 使用预构建镜像
-
-```bash
-docker run -d \
-  --name embyhub \
-  -p 9090:9090 \
-  -p 8001-8010:8001-8010 \
-  -v embyhub-data:/app/data \
-  -e JWT_SECRET=your-secret-here \
-  ghcr.io/embyhub/emby-panel:latest
-```
-
-### 自行构建
-
-```bash
-docker build -t embyhub .
-docker run -d \
-  --name embyhub \
-  -p 9090:9090 \
-  -p 8001-8010:8001-8010 \
-  -v embyhub-data:/app/data \
-  -e JWT_SECRET=your-secret-here \
-  embyhub
-```
-
-> **注意**：除管理面板端口外，还需要映射每个反代站点的监听端口。上面的 `8001-8010` 只是示例，按实际配置调整。
-
-### Docker Compose 示例
-
-```yaml
-services:
-  embyhub:
-    image: ghcr.io/embyhub/emby-panel:latest
-    restart: unless-stopped
-    ports:
-      - "9090:9090"
-      - "8001-8010:8001-8010"
-    volumes:
-      - embyhub-data:/app/data
-    environment:
-      - JWT_SECRET=your-secret-here
-
-volumes:
-  embyhub-data:
-```
+---
 
 ## 双上游配置
 
 每个站点可以配置两个上游地址：
 
 | 字段 | 用途 | 示例 |
-| --- | --- | --- |
-| **回源地址**（`target_url`） | 网页、API、元数据请求 | `https://emby.example.com` |
-| **播放地址**（`playback_target_url`） | 视频/音频播放、转码、直链下载 | `https://cdn.example.com` |
+|------|------|------|
+| **回源地址**（`target_url`） | 网页、API、元数据 | `https://emby.example.com` |
+| **播放地址**（`playback_target_url`） | 播放、转码、直链下载 | `https://cdn.example.com` |
 
-播放地址为可选项。如果不设置，所有请求走同一个上游。
+播放地址为可选项。不设置时所有请求走同一上游。
 
-设置了播放地址后，以下路径前缀的请求会被路由到播放上游：
-
-- `/Videos/...`、`/emby/Videos/...`
-- `/Audio/...`、`/emby/Audio/...`
-- `/LiveTV/...`、`/emby/LiveTV/...`
-- `/Items/.../Download`
+设置后以下路径会路由到播放上游：
+`/Videos/`、`/emby/Videos/`、`/Audio/`、`/emby/Audio/`、`/LiveTV/`、`/emby/LiveTV/`、`/Items/.../Download`
 
 **典型场景**：Emby 主服务器负责 API 和元数据，CDN 或专用媒体服务器负责大文件分发。
 
+---
+
 ## 诊断功能说明
 
-诊断页面提供四项检测，需要理解每项的含义和边界：
+| 检测项 | 检测对象 | 含义 | 不代表什么 |
+|--------|---------|------|-----------|
+| **回源健康** | 上游 `target_url` | 网络层可达性（多探针路径，401/403/404 仍算在线） | 不是端到端的业务健康证明 |
+| **TLS 状态** | 上游 HTTPS 证书 | 证书有效期、颁发机构展示 | 不负责自动签发或续期 |
+| **请求头配置** | 本地 UA 配置 | 代理将发送给上游的 UA / Client 值 | 不是远端回显验证 |
+| **代理状态** | 本地反代进程 | 是否运行、监听端口 | — |
 
-### 回源健康
-
-- 检测的是上游 `target_url` 的**可达性**
-- 会尝试多个探针路径（不仅仅是 `/emby/System/Info/Public`）
-- 上游返回 `401`、`403`、`404` 时仍判定为"在线" — 因为能收到 HTTP 响应说明服务器可达，只是该路径需要认证或不存在
-- 仅当上游完全不可达或返回 `5xx` 时才报"异常"或"离线"
-- **这不是端到端的业务健康证明**，只代表网络层面的可达性判定
-
-### TLS 状态
-
-- 检测的是**上游 `target_url`** 的 HTTPS 证书，不是管理面板自身的证书
-- 如果上游是 HTTP，会显示"未启用"
-- 只做证书读取和有效期展示，**不负责自动签发或续期**
-
-### 请求头配置
-
-- 显示的是 EmbyHub **即将发送给上游**的 UA 和 Client 字段值
-- 这是本地配置预览，**不是远端服务器的回显验证**
-- UA 伪装会同时改写 HTTP 和 WebSocket 请求中的 `User-Agent` 头以及 `X-Emby-Authorization` / `Authorization` 中的 `Client="..."` 字段
-
-### 代理状态
-
-- 显示当前站点的反代进程是否在运行、监听在哪个端口
+---
 
 ## 运维要点
 
-- **JWT 密钥**：未设置 `JWT_SECRET` 时，程序每次启动会生成一个随机密钥。这意味着重启后所有会话失效，生产环境务必显式配置
-- **流量持久化**：流量数据每 60 秒刷入 SQLite，异常退出可能丢失最近一分钟的计量数据
-- **站点操作原子性**：站点创建、启停、更新操作如果反代绑定失败，会回滚数据库变更并返回错误
-- **优雅关闭**：收到 `SIGINT`/`SIGTERM` 后会先 flush 流量再退出
+- **JWT 密钥**：未设置 `JWT_SECRET` 时每次启动生成随机密钥，重启后会话全部失效
+- **流量持久化**：每 60 秒刷入 SQLite，异常退出可能丢失最近一分钟计量
+- **操作原子性**：站点创建/启停/更新如反代绑定失败，会回滚数据库并返回错误
+- **优雅关闭**：收到 `SIGINT`/`SIGTERM` 后先 flush 流量再退出
 
-## 验证
+---
+
+## 验证 & CI/CD
 
 ```bash
-go test ./...        # 运行测试
+go test ./...             # 运行测试
 go build -o emby-panel .  # 编译
 ```
 
-## CI/CD
-
 推送 `v*` 标签时自动触发：
-
-- 多平台构建：`linux/amd64`、`linux/arm64`、`windows/amd64`、`darwin/arm64`
+- 多平台构建（linux/amd64、linux/arm64、windows/amd64、darwin/arm64）
 - 创建 GitHub Release 并上传二进制
 - 构建并推送 Docker 镜像到 `ghcr.io`
 
-## 截图
-
-<details>
-<summary>站点管理</summary>
-<img src="docs/sites.png" width="800" alt="站点管理">
-</details>
-
-<details>
-<summary>故障诊断</summary>
-<img src="docs/diagnostics.png" width="800" alt="故障诊断">
-</details>
+---
 
 ## Roadmap
 
@@ -242,7 +246,6 @@ go build -o emby-panel .  # 编译
 - 没有内置通知能力（无 Telegram / Webhook 集成）
 - TLS 诊断是只读展示，不管证书签发和续期
 - UA 诊断是本地配置预览，不验证远端实际收到的请求头
-- 后端逻辑集中在 `main.go`，这是有意为之的设计选择
 
 ## 开发须知
 
