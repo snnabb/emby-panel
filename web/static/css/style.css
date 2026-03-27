@@ -645,6 +645,22 @@ tr:hover td { background: var(--surface); }
 .form-select:focus { border-color: rgba(10,132,255,.5); box-shadow: 0 0 0 3px rgba(10,132,255,.1); }
 .form-select option { background: #1a1a1a; color: var(--white); }
 
+.modal-select {
+  width: 100%;
+  min-height: 50px;
+  font-size: .9rem;
+  border-radius: var(--radius-sm);
+  color: var(--white);
+  color-scheme: dark;
+  background-color: var(--surface);
+  background-position: right 18px center;
+}
+
+.modal-select option {
+  background: #16181d;
+  color: var(--white);
+}
+
 .chart-wrap {
   background: var(--surface);
   border: 1px solid var(--glass-border);

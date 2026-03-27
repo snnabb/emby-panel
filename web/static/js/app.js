@@ -7,17 +7,20 @@
   const loginButtonEl = document.getElementById('btn-login');
   let dashboardRefreshTimer = null;
   let appBootstrapped = false;
+  let modalBackdropClosable = false;
 
-  window.openModal = function() {
+  window.openModal = function(options) {
+    modalBackdropClosable = !!(options && options.closeOnBackdrop);
     document.getElementById('modal-overlay').classList.add('active');
   };
 
   window.closeModal = function() {
+    modalBackdropClosable = false;
     document.getElementById('modal-overlay').classList.remove('active');
   };
 
   document.getElementById('modal-overlay').addEventListener('click', function(e) {
-    if (e.target === this) closeModal();
+    if (e.target === this && modalBackdropClosable) closeModal();
   });
 
   document.getElementById('modal-close').addEventListener('click', closeModal);

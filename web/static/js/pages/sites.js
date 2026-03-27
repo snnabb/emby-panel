@@ -103,7 +103,7 @@ function showSiteModal(site) {
     </div>
     <div class="form-group">
       <label>UA 模式</label>
-      <select class="form-input" id="m-ua" style="appearance:auto">
+      <select class="form-select modal-select" id="m-ua">
         <option value="infuse" ${(!isEdit || site.ua_mode === 'infuse') ? 'selected' : ''}>Infuse</option>
         <option value="web" ${isEdit && site.ua_mode === 'web' ? 'selected' : ''}>Web</option>
         <option value="client" ${isEdit && site.ua_mode === 'client' ? 'selected' : ''}>客户端</option>
