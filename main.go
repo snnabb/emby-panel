@@ -1451,7 +1451,11 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/auth/check
 func (a *App) handleAuthCheck(w http.ResponseWriter, r *http.Request) {
-	a.jsonOK(w, map[string]interface{}{"needs_setup": a.db.UserCount() == 0})
+	a.jsonOK(w, map[string]interface{}{
+		"needs_setup":          a.db.UserCount() == 0,
+		"mode":                 "single_admin",
+		"jwt_secret_ephemeral": jwtSecretEphemeral,
+	})
 }
 
 // GET /api/dashboard

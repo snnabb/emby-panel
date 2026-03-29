@@ -50,6 +50,8 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 input, select { font-family: inherit; }
 ::-webkit-scrollbar { width: 0; background: transparent; }
 
+.mono-subtle { color: var(--white-38); }
+
 /* ============================================================
    Animations
    ============================================================ */
@@ -147,6 +149,13 @@ input, select { font-family: inherit; }
 
 .form-group { margin-bottom: 16px; }
 
+.form-help {
+  margin-top: 8px;
+  font-size: .75rem;
+  line-height: 1.5;
+  color: var(--white-38);
+}
+
 .form-group label {
   display: block;
   font-size: .75rem;
@@ -213,6 +222,15 @@ input, select { font-family: inherit; }
 }
 
 .login-footer a:hover { opacity: .8; }
+
+.login-note {
+  display: block;
+  margin-top: 10px;
+  font-size: .75rem;
+  line-height: 1.5;
+}
+
+.login-note.warn { color: var(--orange); }
 
 /* ============================================================
    Top Navigation

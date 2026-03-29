@@ -248,6 +248,52 @@ go build -o meridian .  # 编译
 
 ---
 
+## V1 定位
+
+Meridian `v1` 明确定位为一个**单管理员、轻量、可直接落地**的 Emby reverse proxy management panel。
+
+- 保留：登录、站点 CRUD、启停、UA 改写、流量统计、双上游、结构化诊断
+- 不做：多用户、角色权限、审计日志、Telegram / Webhook 通知
+- 目标：先把单文件 Go + 嵌入式 SPA 的简单面板体验收口，而不是提前引入更重的管理系统
+
+## 升级现有实例
+
+升级时建议优先保持这两样东西不变：
+
+- `JWT_SECRET`
+- SQLite 数据库文件及其同目录的 `-wal` / `-shm`
+
+推荐步骤：
+
+1. 停止正在运行的 Meridian 服务。
+2. 备份当前二进制、数据库文件和 `JWT_SECRET` 所在的环境配置。
+3. 替换为新版本二进制或新镜像。
+4. 用原来的 `JWT_SECRET` 和数据库重新启动。
+5. 登录面板后检查站点列表、端口监听和诊断页。
+
+如果升级后临时忘记保留 `JWT_SECRET`，历史 JWT 会全部失效，表现为所有登录状态需要重新建立。
+
+## 备份与恢复
+
+最小备份集：
+
+- `meridian.db`
+- `meridian.db-wal`
+- `meridian.db-shm`
+- 保存 `JWT_SECRET` 的 `.env`、systemd 环境文件或容器环境配置
+
+恢复步骤：
+
+1. 停止 Meridian。
+2. 还原数据库文件到原路径。
+3. 还原原来的 `JWT_SECRET`。
+4. 启动 Meridian。
+5. 验证管理员登录、站点配置和关键代理端口。
+
+如果你使用 Docker，恢复时同样要保留挂载卷里的数据库文件，并继续使用原来的 `JWT_SECRET`。
+
+---
+
 ## Roadmap
 
 以下功能尚未实现，列在这里作为未来方向：

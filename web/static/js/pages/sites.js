@@ -3,7 +3,7 @@ function renderSites() {
   const page = document.getElementById('page-sites');
   page.innerHTML = `
     <h1 class="section-title fade-up">站点管理</h1>
-    <p class="section-sub fade-up stagger-1">管理所有 Emby 反代站点</p>
+    <p class="section-sub fade-up stagger-1">管理所有 Emby 反代站点与双上游配置</p>
     <div class="page-toolbar fade-up stagger-1">
       <div class="toolbar-info" id="sites-count"></div>
       <button class="btn-add" id="btn-add-site">
@@ -32,6 +32,8 @@ async function loadSites() {
     grid.innerHTML = sites.map((s, i) => {
       const pct = s.traffic_quota > 0 ? (s.traffic_used / s.traffic_quota * 100).toFixed(1) : 0;
       const pctClass = pct > 85 ? 'danger' : pct > 50 ? 'warn' : 'normal';
+      const playbackRow = renderPlaybackRow(s);
+
       return `
       <div class="site-card fade-up stagger-${Math.min(i + 1, 6)}">
         <div class="site-top">
@@ -43,15 +45,10 @@ async function loadSites() {
         </div>
         <div class="site-rows">
           <div class="site-row">
-            <span class="site-row-label">回源地址</span>
+            <span class="site-row-label">主回源地址</span>
             <span class="mono">${esc(s.target_url)}</span>
           </div>
-          ${s.playback_target_url ? `
-          <div class="site-row">
-            <span class="site-row-label">播放地址</span>
-            <span class="mono">${esc(s.playback_target_url)}</span>
-          </div>
-          ` : ''}
+          ${playbackRow}
           <div class="site-row">
             <span class="site-row-label">监听端口</span>
             <span class="mono">:${s.listen_port}</span>
@@ -89,6 +86,34 @@ async function loadSites() {
   }
 }
 
+function renderPlaybackRow(site) {
+  const playback = (site.playback_target_url || '').trim();
+  if (!playback) {
+    return `
+      <div class="site-row">
+        <span class="site-row-label">播放回源</span>
+        <span class="mono mono-subtle">跟随主回源</span>
+      </div>
+    `;
+  }
+
+  if (playback === (site.target_url || '').trim()) {
+    return `
+      <div class="site-row">
+        <span class="site-row-label">播放回源</span>
+        <span class="mono mono-subtle">与主回源相同</span>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="site-row">
+      <span class="site-row-label">播放回源</span>
+      <span class="mono">${esc(playback)}</span>
+    </div>
+  `;
+}
+
 function showSiteModal(site) {
   const isEdit = !!site;
   const title = isEdit ? '编辑站点' : '添加站点';
@@ -100,12 +125,14 @@ function showSiteModal(site) {
       <input type="text" class="form-input" id="m-name" value="${isEdit ? esc(site.name) : ''}" placeholder="如：Emby-US-01" required>
     </div>
     <div class="form-group">
-      <label>回源地址</label>
+      <label>主回源地址</label>
       <input type="text" class="form-input" id="m-target" value="${isEdit ? esc(site.target_url) : ''}" placeholder="如：192.168.1.10:8096 或 https://emby.example.com" required>
+      <div class="form-help">网页、API 和默认回源都走这里。</div>
     </div>
     <div class="form-group">
-      <label>播放地址（可选）</label>
-      <input type="text" class="form-input" id="m-playback-target" value="${isEdit ? esc(site.playback_target_url || '') : ''}" placeholder="如播放流、转码流、直链资源单独走的地址">
+      <label>播放回源地址（可选，留空跟随主回源）</label>
+      <input type="text" class="form-input" id="m-playback-target" value="${isEdit ? esc(site.playback_target_url || '') : ''}" placeholder="仅在播放、转码或直链资源需要独立上游时填写">
+      <div class="form-help">仅在播放、转码或直链资源需要独立上游时填写。</div>
     </div>
     <div class="form-group">
       <label>监听端口</label>

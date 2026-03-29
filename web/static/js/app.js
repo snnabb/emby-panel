@@ -8,6 +8,11 @@
   let dashboardRefreshTimer = null;
   let appBootstrapped = false;
   let modalBackdropClosable = false;
+  let authStatus = {
+    needs_setup: false,
+    mode: 'single_admin',
+    jwt_secret_ephemeral: false,
+  };
 
   window.openModal = function(options) {
     modalBackdropClosable = !!(options && options.closeOnBackdrop);
@@ -33,6 +38,7 @@
 
     try {
       const res = await API.checkSetup();
+      authStatus = Object.assign({}, authStatus, res || {});
       if (res.needs_setup) {
         showSetupMode();
         return;
@@ -44,17 +50,36 @@
     showLoginMode();
   }
 
+  function renderLoginFooter(isSetup) {
+    const lines = [];
+    if (authStatus.mode === 'single_admin') {
+      lines.push(isSetup
+        ? '当前为单管理员模式，请创建唯一的管理员账号。'
+        : '当前为单管理员模式。首次使用？<a href="#" id="link-register">创建管理员账号</a>');
+    } else {
+      lines.push(isSetup
+        ? '首次使用，请创建管理员账号。'
+        : '首次使用？<a href="#" id="link-register">创建管理员账号</a>');
+    }
+
+    if (authStatus.jwt_secret_ephemeral) {
+      lines.push('<span class="login-note warn">当前未固定 JWT_SECRET，服务重启后需要重新登录。</span>');
+    }
+
+    return lines.join('');
+  }
+
   function showSetupMode() {
-    loginButtonEl.textContent = '注 册';
+    loginButtonEl.textContent = '注册';
     loginButtonEl.disabled = false;
-    loginFooterEl.textContent = '首次使用，请创建管理员账号';
+    loginFooterEl.innerHTML = renderLoginFooter(true);
     loginEl._isSetup = true;
   }
 
   function showLoginMode() {
-    loginButtonEl.textContent = '登 录';
+    loginButtonEl.textContent = '登录';
     loginButtonEl.disabled = false;
-    loginFooterEl.innerHTML = '首次使用？<a href="#" id="link-register">创建管理员账号</a>';
+    loginFooterEl.innerHTML = renderLoginFooter(false);
     loginEl._isSetup = false;
   }
 
@@ -109,7 +134,7 @@
     } catch (err) {
       Toast.error(err.message);
       loginButtonEl.disabled = false;
-      loginButtonEl.textContent = loginEl._isSetup ? '注 册' : '登 录';
+      loginButtonEl.textContent = loginEl._isSetup ? '注册' : '登录';
     }
   });
 

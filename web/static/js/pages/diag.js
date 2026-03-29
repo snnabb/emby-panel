@@ -56,9 +56,10 @@ async function runDiag() {
 
     const notes = [
       playbackNote(playback, primary),
+      primaryProbeNote(primary),
       '健康表示上游可达性与探针结果，不是完整业务可用性证明。',
       'TLS 展示的是上游站点证书，不是 Meridian 自己监听端口的证书。',
-    ];
+    ].filter(Boolean);
 
     const cards = [
       renderDiagNotes(notes),
@@ -107,7 +108,9 @@ function renderDiagNotes(notes) {
 function renderHealthCard(title, subtitle, upstream, staggerClass) {
   const health = upstream.health || {};
   const probe = health.probe || {};
-  const latency = typeof health.latency_ms === 'number' ? health.latency_ms : 0;
+  const latency = typeof health.latency_ms === 'number' ? health.latency_ms : null;
+  const latencyText = latency === null ? '--' : `${latency}ms`;
+
   return `
     <div class="diag-card fade-up ${staggerClass}">
       <div class="diag-head">
@@ -123,7 +126,7 @@ function renderHealthCard(title, subtitle, upstream, staggerClass) {
         <div class="diag-row"><span class="diag-key">实际目标</span><span class="diag-val diag-wrap">${diagText(upstream.effective_url, '未配置')}</span></div>
         <div class="diag-row"><span class="diag-key">连接状态</span><span class="diag-val ${statusClass(health.status)}">${statusText(health.status)}</span></div>
         <div class="diag-row"><span class="diag-key">Emby 版本</span><span class="diag-val">${diagText(health.emby_version)}</span></div>
-        <div class="diag-row"><span class="diag-key">响应延迟</span><span class="diag-val ${latencyClass(latency)}">${latency}ms</span></div>
+        <div class="diag-row"><span class="diag-key">响应延迟</span><span class="diag-val ${latencyClass(latency)}">${latencyText}</span></div>
         <div class="diag-row"><span class="diag-key">探针类型</span><span class="diag-val">${probeLabel(probe)}</span></div>
         <div class="diag-row"><span class="diag-key">探针请求</span><span class="diag-val diag-wrap">${diagText(probeRequestText(probe))}</span></div>
         ${typeof probe.http_status === 'number' && probe.http_status > 0 ? `<div class="diag-row"><span class="diag-key">探针响应</span><span class="diag-val">${probe.http_status}</span></div>` : ''}
@@ -206,13 +209,20 @@ function renderProxyCard(proxy, staggerClass) {
   `;
 }
 
+function primaryProbeNote(primary) {
+  const probe = primary && primary.health ? primary.health.probe || {} : {};
+  if (probe.kind !== 'reachability_fallback') return '';
+  return '主回源元数据接口未命中，当前已退回到目标根路径可达性探针。';
+}
+
 function playbackNote(playback, primary) {
   if (playback.using_fallback) {
     return `播放回源未单独配置，当前回退到主回源 ${primary.effective_url || '--'}，因此不重复展示播放健康或播放 TLS。`;
   }
   if (playback.same_as_primary) {
-    return `播放回源已配置，但与主回源相同，当前复用主回源诊断结果，不重复展示完全相同的诊断块。`;
+    return '播放回源已配置，但与主回源相同，当前复用主回源诊断结果，不重复展示完全相同的诊断块。';
   }
+
   const probe = playback.health && playback.health.probe ? playback.health.probe : {};
   if (probe.kind === 'playback_path') {
     const probeText = probeRequestText(probe) || 'HEAD 播放路径探针';
@@ -221,6 +231,7 @@ function playbackNote(playback, primary) {
     }
     return `播放回源是独立上游：${playback.effective_url || '--'}。当前健康块使用 ${probeText} 做轻量播放路径探针，不代表完整播放一定成功。`;
   }
+
   if (playback.show_tls) {
     return `播放回源是独立 HTTPS 上游：${playback.effective_url || '--'}，因此会单独展示播放健康和播放 TLS。`;
   }

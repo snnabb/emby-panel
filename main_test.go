@@ -100,6 +100,61 @@ func TestTLSIssuerNameFallsBackSafely(t *testing.T) {
 	}
 }
 
+func TestHandleAuthCheckExposesSingleAdminModeBeforeSetup(t *testing.T) {
+	app := newTestApp(t)
+	jwtSecretEphemeral = true
+	t.Cleanup(func() { jwtSecretEphemeral = false })
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/check", nil)
+
+	app.handleAuthCheck(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	body := decodeBody(t, rr)
+	if got := mustBoolValue(t, body, "needs_setup"); !got {
+		t.Fatalf("needs_setup = %v, want true", got)
+	}
+	if got := mustStringValue(t, body, "mode"); got != "single_admin" {
+		t.Fatalf("mode = %q, want single_admin", got)
+	}
+	if got := mustBoolValue(t, body, "jwt_secret_ephemeral"); !got {
+		t.Fatalf("jwt_secret_ephemeral = %v, want true", got)
+	}
+}
+
+func TestHandleAuthCheckExposesConfiguredSingleAdminMode(t *testing.T) {
+	app := newTestApp(t)
+	jwtSecretEphemeral = false
+
+	if _, err := app.db.CreateUser("admin", "admin123"); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/check", nil)
+
+	app.handleAuthCheck(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	body := decodeBody(t, rr)
+	if got := mustBoolValue(t, body, "needs_setup"); got {
+		t.Fatalf("needs_setup = %v, want false", got)
+	}
+	if got := mustStringValue(t, body, "mode"); got != "single_admin" {
+		t.Fatalf("mode = %q, want single_admin", got)
+	}
+	if got := mustBoolValue(t, body, "jwt_secret_ephemeral"); got {
+		t.Fatalf("jwt_secret_ephemeral = %v, want false", got)
+	}
+}
+
 func TestDiagnoseSiteUsesRootSystemInfoProbe(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/System/Info/Public" {
