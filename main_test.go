@@ -147,6 +147,167 @@ func TestDiagnoseSiteTreatsReachable4xxAsOnline(t *testing.T) {
 	}
 }
 
+func TestHandleSiteDiagReturnsPlaybackFallbackMetadata(t *testing.T) {
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/System/Info/Public" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Write([]byte(`{"Version":"4.8.1.0"}`))
+	}))
+	defer apiServer.Close()
+
+	app := newTestApp(t)
+	site, err := app.db.CreateSite("diag", freePort(t), apiServer.URL, "", "infuse", 0, 0)
+	if err != nil {
+		t.Fatalf("CreateSite: %v", err)
+	}
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/sites/"+jsonNumber64(site.ID)+"/diag", nil)
+
+	app.handleSiteByID(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	body := decodeBody(t, rr)
+	upstreams := mustMapValue(t, body, "upstreams")
+	primary := mustMapValue(t, upstreams, "primary")
+	playback := mustMapValue(t, upstreams, "playback")
+
+	if got := mustStringValue(t, primary, "effective_url"); got != apiServer.URL {
+		t.Fatalf("primary effective_url = %q, want %q", got, apiServer.URL)
+	}
+	if got := mustBoolValue(t, primary, "show_health"); !got {
+		t.Fatalf("primary show_health = %v, want true", got)
+	}
+	if got := mustStringValue(t, playback, "effective_url"); got != apiServer.URL {
+		t.Fatalf("playback effective_url = %q, want %q", got, apiServer.URL)
+	}
+	if got := mustBoolValue(t, playback, "configured"); got {
+		t.Fatalf("playback configured = %v, want false", got)
+	}
+	if got := mustBoolValue(t, playback, "using_fallback"); !got {
+		t.Fatalf("playback using_fallback = %v, want true", got)
+	}
+	if got := mustBoolValue(t, playback, "same_as_primary"); !got {
+		t.Fatalf("playback same_as_primary = %v, want true", got)
+	}
+	if got := mustBoolValue(t, playback, "show_health"); got {
+		t.Fatalf("playback show_health = %v, want false", got)
+	}
+	if got := mustBoolValue(t, playback, "show_tls"); got {
+		t.Fatalf("playback show_tls = %v, want false", got)
+	}
+}
+
+func TestHandleSiteDiagMarksSharedPlaybackTarget(t *testing.T) {
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/System/Info/Public" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Write([]byte(`{"Version":"4.8.1.0"}`))
+	}))
+	defer apiServer.Close()
+
+	app := newTestApp(t)
+	site, err := app.db.CreateSite("diag", freePort(t), apiServer.URL, apiServer.URL, "infuse", 0, 0)
+	if err != nil {
+		t.Fatalf("CreateSite: %v", err)
+	}
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/sites/"+jsonNumber64(site.ID)+"/diag", nil)
+
+	app.handleSiteByID(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	body := decodeBody(t, rr)
+	playback := mustMapValue(t, mustMapValue(t, body, "upstreams"), "playback")
+
+	if got := mustBoolValue(t, playback, "configured"); !got {
+		t.Fatalf("playback configured = %v, want true", got)
+	}
+	if got := mustBoolValue(t, playback, "using_fallback"); got {
+		t.Fatalf("playback using_fallback = %v, want false", got)
+	}
+	if got := mustBoolValue(t, playback, "same_as_primary"); !got {
+		t.Fatalf("playback same_as_primary = %v, want true", got)
+	}
+	if got := mustBoolValue(t, playback, "show_health"); got {
+		t.Fatalf("playback show_health = %v, want false", got)
+	}
+}
+
+func TestHandleSiteDiagExposesSeparatePlaybackTLS(t *testing.T) {
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/System/Info/Public" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Write([]byte(`{"Version":"4.8.1.0"}`))
+	}))
+	defer apiServer.Close()
+
+	playbackServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/System/Info/Public" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Write([]byte(`{"Version":"4.8.1.1"}`))
+	}))
+	defer playbackServer.Close()
+
+	app := newTestApp(t)
+	site, err := app.db.CreateSite("diag", freePort(t), apiServer.URL, playbackServer.URL, "infuse", 0, 0)
+	if err != nil {
+		t.Fatalf("CreateSite: %v", err)
+	}
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/sites/"+jsonNumber64(site.ID)+"/diag", nil)
+
+	app.handleSiteByID(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	body := decodeBody(t, rr)
+	upstreams := mustMapValue(t, body, "upstreams")
+	primary := mustMapValue(t, upstreams, "primary")
+	playback := mustMapValue(t, upstreams, "playback")
+	playbackTLS := mustMapValue(t, playback, "tls")
+
+	if got := mustBoolValue(t, primary, "show_tls"); got {
+		t.Fatalf("primary show_tls = %v, want false", got)
+	}
+	if got := mustBoolValue(t, playback, "configured"); !got {
+		t.Fatalf("playback configured = %v, want true", got)
+	}
+	if got := mustBoolValue(t, playback, "same_as_primary"); got {
+		t.Fatalf("playback same_as_primary = %v, want false", got)
+	}
+	if got := mustBoolValue(t, playback, "show_health"); !got {
+		t.Fatalf("playback show_health = %v, want true", got)
+	}
+	if got := mustBoolValue(t, playback, "show_tls"); !got {
+		t.Fatalf("playback show_tls = %v, want true", got)
+	}
+	if got := mustBoolValue(t, playbackTLS, "enabled"); !got {
+		t.Fatalf("playback tls.enabled = %v, want true", got)
+	}
+	if got := mustStringValue(t, playback, "effective_url"); got != playbackServer.URL {
+		t.Fatalf("playback effective_url = %q, want %q", got, playbackServer.URL)
+	}
+}
+
 func TestApplyUAProfileHeadersRewritesClientIdentity(t *testing.T) {
 	header := http.Header{}
 	header.Set("User-Agent", "OldUA/1.0")
@@ -453,4 +614,46 @@ func mustReadBody(t *testing.T, resp *http.Response) string {
 		t.Fatalf("read body: %v", err)
 	}
 	return string(body)
+}
+
+func mustMapValue(t *testing.T, body map[string]interface{}, key string) map[string]interface{} {
+	t.Helper()
+
+	value, ok := body[key]
+	if !ok {
+		t.Fatalf("missing key %q in %#v", key, body)
+	}
+	result, ok := value.(map[string]interface{})
+	if !ok {
+		t.Fatalf("key %q = %#v, want object", key, value)
+	}
+	return result
+}
+
+func mustStringValue(t *testing.T, body map[string]interface{}, key string) string {
+	t.Helper()
+
+	value, ok := body[key]
+	if !ok {
+		t.Fatalf("missing key %q in %#v", key, body)
+	}
+	result, ok := value.(string)
+	if !ok {
+		t.Fatalf("key %q = %#v, want string", key, value)
+	}
+	return result
+}
+
+func mustBoolValue(t *testing.T, body map[string]interface{}, key string) bool {
+	t.Helper()
+
+	value, ok := body[key]
+	if !ok {
+		t.Fatalf("missing key %q in %#v", key, body)
+	}
+	result, ok := value.(bool)
+	if !ok {
+		t.Fatalf("key %q = %#v, want bool", key, value)
+	}
+	return result
 }

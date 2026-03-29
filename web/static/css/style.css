@@ -775,6 +775,7 @@ canvas#trafficChart { width: 100% !important; height: 280px !important; }
   transition: all .3s cubic-bezier(.16,1,.3,1);
 }
 
+.diag-card-wide { grid-column: 1 / -1; }
 .diag-card:hover { transform: translateY(-2px); background: var(--surface-hover); }
 
 .diag-head {
@@ -802,6 +803,29 @@ canvas#trafficChart { width: 100% !important; height: 280px !important; }
 
 .diag-rows { display: flex; flex-direction: column; gap: 10px; }
 
+.diag-empty {
+  color: var(--white-38);
+  text-align: center;
+  padding: 36px 12px;
+}
+
+.diag-note-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.diag-note-item {
+  flex: 1 1 260px;
+  padding: 14px 16px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--glass-border);
+  background: rgba(255,255,255,.03);
+  color: var(--white-60);
+  font-size: .8rem;
+  line-height: 1.6;
+}
+
 .diag-row {
   display: flex;
   align-items: center;
@@ -819,6 +843,12 @@ canvas#trafficChart { width: 100% !important; height: 280px !important; }
   font-size: .82rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+
+.diag-wrap {
+  max-width: 240px;
+  text-align: right;
+  word-break: break-all;
 }
 
 .diag-val.good { color: var(--green); }
