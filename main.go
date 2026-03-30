@@ -984,9 +984,10 @@ type DiagTLS struct {
 }
 
 type DiagHeaders struct {
-	UAApplied   bool   `json:"ua_applied"`
-	CurrentUA   string `json:"current_ua"`
-	ClientField string `json:"client_field"`
+	UAApplied    bool   `json:"ua_applied"`
+	CurrentUA    string `json:"current_ua"`
+	ClientField  string `json:"client_field"`
+	VersionField string `json:"version_field"`
 }
 
 type DiagProxy struct {
@@ -1351,9 +1352,10 @@ func diagnoseSite(site *Site, pm *ProxyManager) DiagResult {
 
 	// Headers
 	result.Headers = DiagHeaders{
-		UAApplied:   true,
-		CurrentUA:   profile.UserAgent,
-		ClientField: profile.Client,
+		UAApplied:    true,
+		CurrentUA:    profile.UserAgent,
+		ClientField:  profile.Client,
+		VersionField: profile.Version,
 	}
 
 	// Proxy status

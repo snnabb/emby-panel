@@ -183,6 +183,7 @@ function renderHeadersCard(headers, staggerClass) {
         <div class="diag-row"><span class="diag-key">UA 改写</span><span class="diag-val ${headers.ua_applied ? 'good' : 'bad'}">${headers.ua_applied ? '已启用' : '未启用'}</span></div>
         <div class="diag-row"><span class="diag-key">当前 UA</span><span class="diag-val diag-wrap">${diagText(headers.current_ua)}</span></div>
         <div class="diag-row"><span class="diag-key">Client 字段</span><span class="diag-val">${diagText(headers.client_field)}</span></div>
+        <div class="diag-row"><span class="diag-key">Version 字段</span><span class="diag-val">${diagText(headers.version_field)}</span></div>
       </div>
     </div>
   `;
