@@ -452,11 +452,11 @@ func TestHandleSiteDiagExposesSeparatePlaybackTLS(t *testing.T) {
 	}
 }
 
-func TestApplyUAProfileHeadersRewritesClientIdentity(t *testing.T) {
+func TestApplyUAProfileHeadersRewritesClientAndVersionIdentity(t *testing.T) {
 	header := http.Header{}
 	header.Set("User-Agent", "OldUA/1.0")
-	header.Set("X-Emby-Authorization", `MediaBrowser Client="Old Client", Device="TV"`)
-	header.Set("Authorization", `MediaBrowser Client="Old Client", Device="TV"`)
+	header.Set("X-Emby-Authorization", `MediaBrowser Client="Old Client", Device="TV", Version="9.9.9"`)
+	header.Set("Authorization", `MediaBrowser Client="Old Client", Device="TV", Version="9.9.9"`)
 
 	applyUAProfileHeaders(header, uaProfiles["client"])
 
@@ -466,8 +466,54 @@ func TestApplyUAProfileHeadersRewritesClientIdentity(t *testing.T) {
 	if got := header.Get("X-Emby-Authorization"); !strings.Contains(got, `Client="Emby Theater"`) {
 		t.Fatalf("X-Emby-Authorization = %q", got)
 	}
+	if got := header.Get("X-Emby-Authorization"); !strings.Contains(got, `Version="4.7.0"`) {
+		t.Fatalf("X-Emby-Authorization version = %q", got)
+	}
 	if got := header.Get("Authorization"); !strings.Contains(got, `Client="Emby Theater"`) {
 		t.Fatalf("Authorization = %q", got)
+	}
+	if got := header.Get("Authorization"); !strings.Contains(got, `Version="4.7.0"`) {
+		t.Fatalf("Authorization version = %q", got)
+	}
+}
+
+func TestHandleSiteDiagReturnsSpoofedVersionField(t *testing.T) {
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/System/Info/Public" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Write([]byte(`{"Version":"4.8.1.0"}`))
+	}))
+	defer apiServer.Close()
+
+	app := newTestApp(t)
+	site, err := app.db.CreateSite("diag", freePort(t), apiServer.URL, "", "client", 0, 0)
+	if err != nil {
+		t.Fatalf("CreateSite: %v", err)
+	}
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/sites/"+jsonNumber64(site.ID)+"/diag", nil)
+
+	app.handleSiteByID(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	headers := mustMapValue(t, decodeBody(t, rr), "headers")
+	if got := mustBoolValue(t, headers, "ua_applied"); !got {
+		t.Fatalf("ua_applied = %v, want true", got)
+	}
+	if got := mustStringValue(t, headers, "current_ua"); got != uaProfiles["client"].UserAgent {
+		t.Fatalf("current_ua = %q, want %q", got, uaProfiles["client"].UserAgent)
+	}
+	if got := mustStringValue(t, headers, "client_field"); got != uaProfiles["client"].Client {
+		t.Fatalf("client_field = %q, want %q", got, uaProfiles["client"].Client)
+	}
+	if got := mustStringValue(t, headers, "version_field"); got != uaProfiles["client"].Version {
+		t.Fatalf("version_field = %q, want %q", got, uaProfiles["client"].Version)
 	}
 }
 
