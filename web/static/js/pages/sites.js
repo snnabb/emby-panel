@@ -106,10 +106,15 @@ function renderPlaybackRow(site) {
     `;
   }
 
+  const modeLabel = site.playback_mode === 'redirect' ? '重定向跟随' : '直连分流';
   return `
     <div class="site-row">
       <span class="site-row-label">播放回源</span>
       <span class="mono">${esc(playback)}</span>
+    </div>
+    <div class="site-row">
+      <span class="site-row-label">播放模式</span>
+      <span class="mono">${modeLabel}</span>
     </div>
   `;
 }
@@ -134,6 +139,14 @@ function showSiteModal(site) {
       <input type="text" class="form-input" id="m-playback-target" value="${isEdit ? esc(site.playback_target_url || '') : ''}" placeholder="仅在播放、转码或直链资源需要独立上游时填写">
       <div class="form-help">仅在播放、转码或直链资源需要独立上游时填写。</div>
     </div>
+    <div class="form-group" id="playback-mode-group" style="display:none">
+      <label>播放模式</label>
+      <select class="form-select modal-select" id="m-playback-mode">
+        <option value="direct" ${(!isEdit || site.playback_mode !== 'redirect') ? 'selected' : ''}>直连分流</option>
+        <option value="redirect" ${isEdit && site.playback_mode === 'redirect' ? 'selected' : ''}>重定向跟随</option>
+      </select>
+      <div class="form-help">直连分流：播放请求直接发送到播放回源（适合完整 Emby 实例）。重定向跟随：所有请求经主回源，自动跟随重定向到播放回源（适合 CDN 签名节点）。</div>
+    </div>
     <div class="form-group">
       <label>监听端口</label>
       <input type="number" class="form-input" id="m-port" value="${isEdit ? site.listen_port : ''}" placeholder="如：8001" required>
@@ -157,11 +170,20 @@ function showSiteModal(site) {
     <button class="btn-modal primary" id="m-submit">${isEdit ? '保存' : '创建'}</button>
   `;
 
+  const playbackInput = document.getElementById('m-playback-target');
+  const modeGroup = document.getElementById('playback-mode-group');
+  function toggleModeGroup() {
+    modeGroup.style.display = playbackInput.value.trim() ? '' : 'none';
+  }
+  toggleModeGroup();
+  playbackInput.addEventListener('input', toggleModeGroup);
+
   document.getElementById('m-submit').onclick = async () => {
     const data = {
       name: document.getElementById('m-name').value.trim(),
       target_url: document.getElementById('m-target').value.trim(),
       playback_target_url: document.getElementById('m-playback-target').value.trim(),
+      playback_mode: document.getElementById('m-playback-mode').value,
       listen_port: parseInt(document.getElementById('m-port').value),
       ua_mode: document.getElementById('m-ua').value,
       traffic_quota: parseInt(document.getElementById('m-quota').value || 0) * 1073741824,

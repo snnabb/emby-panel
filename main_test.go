@@ -167,7 +167,7 @@ func TestDiagnoseSiteUsesRootSystemInfoProbe(t *testing.T) {
 	defer server.Close()
 
 	app := newTestApp(t)
-	site, err := app.db.CreateSite("diag", freePort(t), server.URL, "", "infuse", 0, 0)
+	site, err := app.db.CreateSite("diag", freePort(t), server.URL, "", "direct", "infuse", 0, 0)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestDiagnoseSiteTreatsReachable4xxAsOnline(t *testing.T) {
 	defer server.Close()
 
 	app := newTestApp(t)
-	site, err := app.db.CreateSite("diag", freePort(t), server.URL, "", "infuse", 0, 0)
+	site, err := app.db.CreateSite("diag", freePort(t), server.URL, "", "direct", "infuse", 0, 0)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestDiagnoseSiteMarksRootReachabilityFallbackProbe(t *testing.T) {
 	defer server.Close()
 
 	app := newTestApp(t)
-	site, err := app.db.CreateSite("diag", freePort(t), server.URL, "", "infuse", 0, 0)
+	site, err := app.db.CreateSite("diag", freePort(t), server.URL, "", "direct", "infuse", 0, 0)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestHandleSiteDiagReturnsPlaybackFallbackMetadata(t *testing.T) {
 	defer apiServer.Close()
 
 	app := newTestApp(t)
-	site, err := app.db.CreateSite("diag", freePort(t), apiServer.URL, "", "infuse", 0, 0)
+	site, err := app.db.CreateSite("diag", freePort(t), apiServer.URL, "", "direct", "infuse", 0, 0)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}
@@ -330,7 +330,7 @@ func TestHandleSiteDiagMarksSharedPlaybackTarget(t *testing.T) {
 	defer apiServer.Close()
 
 	app := newTestApp(t)
-	site, err := app.db.CreateSite("diag", freePort(t), apiServer.URL, apiServer.URL, "infuse", 0, 0)
+	site, err := app.db.CreateSite("diag", freePort(t), apiServer.URL, apiServer.URL, "direct", "infuse", 0, 0)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}
@@ -380,8 +380,10 @@ func TestHandleSiteDiagExposesSeparatePlaybackTLS(t *testing.T) {
 	playbackServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		playbackMethod = r.Method
 		playbackPath = r.URL.Path
-		if r.Method == http.MethodHead && r.URL.Path == "/Videos" {
-			w.WriteHeader(http.StatusMethodNotAllowed)
+		if r.Method == http.MethodGet && r.URL.Path == "/System/Info/Public" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"Version":"4.8.2.0"}`))
 			return
 		}
 		http.NotFound(w, r)
@@ -389,7 +391,7 @@ func TestHandleSiteDiagExposesSeparatePlaybackTLS(t *testing.T) {
 	defer playbackServer.Close()
 
 	app := newTestApp(t)
-	site, err := app.db.CreateSite("diag", freePort(t), apiServer.URL, playbackServer.URL, "infuse", 0, 0)
+	site, err := app.db.CreateSite("diag", freePort(t), apiServer.URL, playbackServer.URL, "direct", "infuse", 0, 0)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}
@@ -426,17 +428,20 @@ func TestHandleSiteDiagExposesSeparatePlaybackTLS(t *testing.T) {
 	if got := mustBoolValue(t, playback, "show_tls"); !got {
 		t.Fatalf("playback show_tls = %v, want true", got)
 	}
-	if got := mustStringValue(t, playbackProbe, "kind"); got != "playback_path" {
-		t.Fatalf("playback probe.kind = %q, want playback_path", got)
+	if got := mustStringValue(t, playbackProbe, "kind"); got != "metadata_api" {
+		t.Fatalf("playback probe.kind = %q, want metadata_api", got)
 	}
-	if got := mustStringValue(t, playbackProbe, "method"); got != http.MethodHead {
-		t.Fatalf("playback probe.method = %q, want HEAD", got)
+	if got := mustStringValue(t, playbackProbe, "method"); got != http.MethodGet {
+		t.Fatalf("playback probe.method = %q, want GET", got)
 	}
-	if got := mustNumberValue(t, playbackProbe, "http_status"); got != http.StatusMethodNotAllowed {
-		t.Fatalf("playback probe.http_status = %d, want 405", got)
+	if got := mustNumberValue(t, playbackProbe, "http_status"); got != http.StatusOK {
+		t.Fatalf("playback probe.http_status = %d, want 200", got)
 	}
 	if got := mustStringValue(t, playbackHealth, "status"); got != "online" {
 		t.Fatalf("playback health.status = %q, want online", got)
+	}
+	if got := mustStringValue(t, playbackHealth, "emby_version"); got != "4.8.2.0" {
+		t.Fatalf("playback health.emby_version = %q, want 4.8.2.0", got)
 	}
 	if got := mustBoolValue(t, playbackTLS, "enabled"); !got {
 		t.Fatalf("playback tls.enabled = %v, want true", got)
@@ -444,11 +449,11 @@ func TestHandleSiteDiagExposesSeparatePlaybackTLS(t *testing.T) {
 	if got := mustStringValue(t, playback, "effective_url"); got != playbackServer.URL {
 		t.Fatalf("playback effective_url = %q, want %q", got, playbackServer.URL)
 	}
-	if playbackMethod != http.MethodHead {
-		t.Fatalf("playback request method = %q, want HEAD", playbackMethod)
+	if playbackMethod != http.MethodGet {
+		t.Fatalf("playback request method = %q, want GET", playbackMethod)
 	}
-	if playbackPath != "/Videos" {
-		t.Fatalf("playback request path = %q, want /Videos", playbackPath)
+	if playbackPath != "/System/Info/Public" {
+		t.Fatalf("playback request path = %q, want /System/Info/Public", playbackPath)
 	}
 }
 
@@ -488,7 +493,7 @@ func TestHandleSiteDiagReturnsSpoofedVersionField(t *testing.T) {
 	defer apiServer.Close()
 
 	app := newTestApp(t)
-	site, err := app.db.CreateSite("diag", freePort(t), apiServer.URL, "", "client", 0, 0)
+	site, err := app.db.CreateSite("diag", freePort(t), apiServer.URL, "", "direct", "client", 0, 0)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}
@@ -559,7 +564,7 @@ func TestHandleSiteToggleRevertsWhenStartFails(t *testing.T) {
 	}
 	defer occupied.Close()
 
-	site, err := app.db.CreateSite("disabled", port, "http://127.0.0.1:8096", "", "infuse", 0, 0)
+	site, err := app.db.CreateSite("disabled", port, "http://127.0.0.1:8096", "", "direct", "infuse", 0, 0)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}
@@ -587,7 +592,7 @@ func TestHandleSiteToggleRevertsWhenStartFails(t *testing.T) {
 func TestHandleSiteUpdateRollsBackOnStartFailure(t *testing.T) {
 	app := newTestApp(t)
 	initialPort := freePort(t)
-	site, err := app.db.CreateSite("stable", initialPort, "http://127.0.0.1:8096", "", "infuse", 0, 0)
+	site, err := app.db.CreateSite("stable", initialPort, "http://127.0.0.1:8096", "", "direct", "infuse", 0, 0)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}
@@ -631,7 +636,7 @@ func TestHandleSiteUpdateRollsBackOnStartFailure(t *testing.T) {
 
 func TestFlushTrafficUpdatesBaselineAndStopPersistsPendingUsage(t *testing.T) {
 	app := newTestApp(t)
-	site, err := app.db.CreateSite("traffic", freePort(t), "http://127.0.0.1:8096", "", "infuse", 1024, 0)
+	site, err := app.db.CreateSite("traffic", freePort(t), "http://127.0.0.1:8096", "", "direct", "infuse", 1024, 0)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}
@@ -661,7 +666,7 @@ func TestFlushTrafficUpdatesBaselineAndStopPersistsPendingUsage(t *testing.T) {
 
 func TestAddTrafficAggregatesSameHour(t *testing.T) {
 	app := newTestApp(t)
-	site, err := app.db.CreateSite("aggregate", freePort(t), "http://127.0.0.1:8096", "", "infuse", 0, 0)
+	site, err := app.db.CreateSite("aggregate", freePort(t), "http://127.0.0.1:8096", "", "direct", "infuse", 0, 0)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}
@@ -724,7 +729,7 @@ func TestProxyRoutesPlaybackRequestsToPlaybackTarget(t *testing.T) {
 	}))
 	defer playbackServer.Close()
 
-	site, err := app.db.CreateSite("split", freePort(t), apiServer.URL, playbackServer.URL, "infuse", 0, 0)
+	site, err := app.db.CreateSite("split", freePort(t), apiServer.URL, playbackServer.URL, "direct", "infuse", 0, 0)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}
@@ -761,7 +766,7 @@ func TestProxyPlaybackRequestsFallBackToMainTarget(t *testing.T) {
 	}))
 	defer apiServer.Close()
 
-	site, err := app.db.CreateSite("single", freePort(t), apiServer.URL, "", "infuse", 0, 0)
+	site, err := app.db.CreateSite("single", freePort(t), apiServer.URL, "", "direct", "infuse", 0, 0)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}

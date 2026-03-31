@@ -225,6 +225,16 @@ func (d *DB) migrate() error {
 		}
 	}
 
+	var hasPlaybackModeColumn int
+	if err := d.db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('sites') WHERE name='playback_mode'").Scan(&hasPlaybackModeColumn); err != nil {
+		return err
+	}
+	if hasPlaybackModeColumn == 0 {
+		if _, err := d.db.Exec("ALTER TABLE sites ADD COLUMN playback_mode TEXT NOT NULL DEFAULT 'direct'"); err != nil {
+			return err
+		}
+	}
+
 	var hasHourlyIndex int
 	if err := d.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_traffic_site_hour'").Scan(&hasHourlyIndex); err != nil {
 		return err
@@ -282,6 +292,7 @@ type Site struct {
 	ListenPort        int    `json:"listen_port"`
 	TargetURL         string `json:"target_url"`
 	PlaybackTargetURL string `json:"playback_target_url"`
+	PlaybackMode      string `json:"playback_mode"`
 	UAMode            string `json:"ua_mode"`
 	Enabled           bool   `json:"enabled"`
 	TrafficQuota      int64  `json:"traffic_quota"`
@@ -333,7 +344,7 @@ func (d *DB) VerifyUser(username, password string) (int64, error) {
 }
 
 func (d *DB) ListSites() ([]Site, error) {
-	rows, err := d.db.Query("SELECT id, name, listen_port, target_url, playback_target_url, ua_mode, enabled, traffic_quota, traffic_used, speed_limit, created_at, updated_at FROM sites ORDER BY id")
+	rows, err := d.db.Query("SELECT id, name, listen_port, target_url, playback_target_url, playback_mode, ua_mode, enabled, traffic_quota, traffic_used, speed_limit, created_at, updated_at FROM sites ORDER BY id")
 	if err != nil {
 		return nil, err
 	}
@@ -342,7 +353,7 @@ func (d *DB) ListSites() ([]Site, error) {
 	for rows.Next() {
 		var s Site
 		var enabled int
-		rows.Scan(&s.ID, &s.Name, &s.ListenPort, &s.TargetURL, &s.PlaybackTargetURL, &s.UAMode, &enabled, &s.TrafficQuota, &s.TrafficUsed, &s.SpeedLimit, &s.CreatedAt, &s.UpdatedAt)
+		rows.Scan(&s.ID, &s.Name, &s.ListenPort, &s.TargetURL, &s.PlaybackTargetURL, &s.PlaybackMode, &s.UAMode, &enabled, &s.TrafficQuota, &s.TrafficUsed, &s.SpeedLimit, &s.CreatedAt, &s.UpdatedAt)
 		s.Enabled = enabled == 1
 		sites = append(sites, s)
 	}
@@ -355,8 +366,8 @@ func (d *DB) ListSites() ([]Site, error) {
 func (d *DB) GetSite(id int64) (*Site, error) {
 	var s Site
 	var enabled int
-	err := d.db.QueryRow("SELECT id, name, listen_port, target_url, playback_target_url, ua_mode, enabled, traffic_quota, traffic_used, speed_limit, created_at, updated_at FROM sites WHERE id=?", id).
-		Scan(&s.ID, &s.Name, &s.ListenPort, &s.TargetURL, &s.PlaybackTargetURL, &s.UAMode, &enabled, &s.TrafficQuota, &s.TrafficUsed, &s.SpeedLimit, &s.CreatedAt, &s.UpdatedAt)
+	err := d.db.QueryRow("SELECT id, name, listen_port, target_url, playback_target_url, playback_mode, ua_mode, enabled, traffic_quota, traffic_used, speed_limit, created_at, updated_at FROM sites WHERE id=?", id).
+		Scan(&s.ID, &s.Name, &s.ListenPort, &s.TargetURL, &s.PlaybackTargetURL, &s.PlaybackMode, &s.UAMode, &enabled, &s.TrafficQuota, &s.TrafficUsed, &s.SpeedLimit, &s.CreatedAt, &s.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -364,10 +375,10 @@ func (d *DB) GetSite(id int64) (*Site, error) {
 	return &s, nil
 }
 
-func (d *DB) CreateSite(name string, port int, targetURL, playbackTargetURL, uaMode string, quota int64, speedLimit int) (*Site, error) {
+func (d *DB) CreateSite(name string, port int, targetURL, playbackTargetURL, playbackMode, uaMode string, quota int64, speedLimit int) (*Site, error) {
 	res, err := d.db.Exec(
-		"INSERT INTO sites (name, listen_port, target_url, playback_target_url, ua_mode, traffic_quota, speed_limit) VALUES (?,?,?,?,?,?,?)",
-		name, port, targetURL, playbackTargetURL, uaMode, quota, speedLimit,
+		"INSERT INTO sites (name, listen_port, target_url, playback_target_url, playback_mode, ua_mode, traffic_quota, speed_limit) VALUES (?,?,?,?,?,?,?,?)",
+		name, port, targetURL, playbackTargetURL, playbackMode, uaMode, quota, speedLimit,
 	)
 	if err != nil {
 		return nil, err
@@ -376,10 +387,10 @@ func (d *DB) CreateSite(name string, port int, targetURL, playbackTargetURL, uaM
 	return d.GetSite(id)
 }
 
-func (d *DB) UpdateSite(id int64, name string, port int, targetURL, playbackTargetURL, uaMode string, quota int64, speedLimit int) error {
+func (d *DB) UpdateSite(id int64, name string, port int, targetURL, playbackTargetURL, playbackMode, uaMode string, quota int64, speedLimit int) error {
 	_, err := d.db.Exec(
-		"UPDATE sites SET name=?, listen_port=?, target_url=?, playback_target_url=?, ua_mode=?, traffic_quota=?, speed_limit=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-		name, port, targetURL, playbackTargetURL, uaMode, quota, speedLimit, id,
+		"UPDATE sites SET name=?, listen_port=?, target_url=?, playback_target_url=?, playback_mode=?, ua_mode=?, traffic_quota=?, speed_limit=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+		name, port, targetURL, playbackTargetURL, playbackMode, uaMode, quota, speedLimit, id,
 	)
 	return err
 }
@@ -471,6 +482,54 @@ func (d *DB) DashboardStats() map[string]interface{} {
 
 // 闂傚倸鍊搁崐椋庣矆娴ｅ搫顥氭い鎾卞灩绾惧潡鏌曢崼婵愭Ц缂佲偓婢舵劗鍙撻柛銉ｅ妿閳藉鏌ｉ妶澶岀暫闁哄矉绱曟禒锔炬嫚閹绘帒顫撻梻浣虹帛閹稿鎯勯鐐茶摕闁绘柨鍚嬮崵瀣亜閹哄棗浜炬繝寰枫倕袚缂佺粯鐩畷銊╊敊閸撗呭帨闂備礁鎼懟顖滅矓瑜版帒绠栨繝濠傚悩閻旂厧浼犻柛鏇炵仛缂嶅倿姊婚崒娆戭槮闁圭⒈鍋婇獮濠呯疀濞戞瑥浜楅梺璺ㄥ枔婵挳寮伴妷鈺傜叆闁绘柨鎼瓭缂備胶濮甸惄顖炲蓟閺囩喓绡€闊洦绋掗宥夋⒑缂佹绠栧┑鐐诧工椤繘宕崟顓熸闂佹悶鍎滈崘顭戠€遍梻鍌欑閹诧繝寮婚妸褎宕叉俊顖欒閸ゆ洟鏌＄仦璇插姎闁藉啰鍠栭弻鏇熷緞閸繂濮㈤梺鍛娚戦幃鍌氼潖閾忚鍏滈柛娑卞幘閸旂兘姊洪崨濠冪叆缂佸鎸抽崺銏狀吋閸滀胶鍙嗛梺鍓插亞閸犳捇宕㈤幘缁樷拺缂備焦锚閻忥箓鏌ㄥ顑芥斀妞ゆ梻鎳撴禍楣冩⒒閸屾瑧顦﹂柟纰卞亰楠炲﹨绠涘☉娆忎簵闂佽法鍠撴慨鎾及閵夆晜鐓ラ柣鏂挎惈瀛濈紓浣哄У閻╊垶寮婚弴鐔虹瘈闊洦绋掗宥夋⒑缂佹绠栧┑鐐诧工椤繘宕崟顓熸闂佹悶鍎滈崘顭戠€遍梻鍌欑閹诧繝寮婚妸褎宕叉俊顖欒閸ゆ洟鏌＄仦璇插姎闁藉啰鍠栭弻鏇熷緞閸繂濮㈤梺鍛娚戦幃鍌氼潖閾忚鍏滈柛娑卞幘閸旂兘姊洪崨濠冪叆缂佸鎸抽崺銏狀吋閸滀胶鍙嗛梺鍓插亞閸犳捇宕㈤幘缁樷拺缂備焦锚閻忥箓鏌ㄥ顑芥斀妞ゆ梻鎳撴禍楣冩⒒閸屾瑧顦﹂柟纰卞亰楠炲﹨绠涘☉娆忎簵闂佽法鍠撴慨鎾及閵夆晜鐓ラ柣鏂挎惈瀛濈紓浣哄У閻╊垶寮婚弴鐔虹瘈闊洦绋掗宥夋⒑缂佹绠栧┑鐐诧工椤繘宕崟顓熸闂佹悶鍎滈崘顭戠€遍梻鍌欑閹诧繝寮婚妸褎宕叉俊顖欒閸ゆ洟鏌＄仦璇插姎闁藉啰鍠栭弻鏇熷緞閸繂濮㈤梺鍛娚戦幃鍌氼潖閾忚鍏滈柛娑卞幘閸旂兘姊洪崨濠冪叆缂佸鎸抽崺銏狀吋閸滀胶鍙嗛梺鍓插亞閸犳捇宕㈤幘缁樷拺缂備焦锚閻忥箓鏌ㄥ顑芥斀妞ゆ梻鎳撴禍楣冩⒒閸屾瑧顦﹂柟纰卞亰楠炲﹨绠涘☉娆忎簵闂佽法鍠撴慨鎾及閵夆晜鐓ラ柣鏂挎惈瀛濈紓浣哄У閻╊垶寮婚弴鐔虹瘈闊洦绋掗宥夋⒑缂佹绠栧┑鐐诧工椤繘宕崟顓熸闂佹悶鍎滈崘顭戠€遍梻鍌欑閹诧繝寮婚妸褎宕叉俊顖欒閸ゆ洟鏌＄仦璇插姎闁藉啰鍠栭弻鏇熷緞閸繂濮㈤梺鍛娚戦幃鍌氼潖閾忚鍏滈柛娑卞幘閸旂兘姊洪崨濠冪叆缂佸鎸抽崺銏狀吋閸滀胶鍙嗛梺鍓插亞閸犳捇宕㈤幘缁樷拺缂備焦锚閻忥箓鏌ㄥ顑芥斀妞ゆ梻鎳撴禍楣冩⒒閸屾瑧顦﹂柟纰卞亰楠炲﹨绠涘☉娆忎簵闂佽法鍠撴慨鎾及閵夆晜鐓ラ柣鏂挎惈瀛濈紓浣哄У閻╊垶寮婚弴鐔虹瘈闊洦绋掗宥夋⒑缂佹绠栧┑鐐诧工椤繘宕崟顓熸闂佹悶鍎滈崘顭戠€遍梻鍌欑閹诧繝寮婚妸褎宕叉俊顖欒閸ゆ洟鏌＄仦璇插姎闁藉啰鍠栭弻鏇熷緞閸繂濮㈤梺鍛娚戦幃鍌氼潖閾忚鍏滈柛娑卞幘閸旂兘姊洪崨濠冪叆缂佸鎸抽崺銏狀吋閸滀胶鍙嗛梺鍓插亞閸犳捇宕㈤幘缁樷拺缂備焦锚閻忥箓鏌ㄥ顑芥斀妞ゆ梻鎳撴禍楣冩⒒閸屾瑧顦﹂柟纰卞亰楠炲﹨绠涘☉娆忎簵闂佽法鍠撴慨鎾及閵夆晜鐓ラ柣鏂挎惈瀛濈紓浣哄У閻╊垶寮婚弴鐔虹瘈闊洦绋掗宥夋⒑缂佹绠栧┑鐐诧工椤繘宕崟顓熸闂佹悶鍎滈崘顭戠€遍梻鍌欑閹诧繝寮婚妸褎宕叉俊顖欒閸ゆ洟鏌＄仦璇插姎闁藉啰鍠栭弻鏇熷緞閸繂濮㈤梺鍛娚戦幃鍌氼潖閾忚鍏滈柛娑卞幘閸旂兘姊洪崨濠冪叆缂佸鎸抽崺銏狀吋閸滀胶鍙嗛梺鍓插亞閸犳捇宕㈤幘缁樷拺缂備焦锚閻忥箓鏌ㄥ顑芥斀妞ゆ梻鎳撴禍楣冩⒒閸屾瑧顦﹂柟纰卞亰楠炲﹨绠涘☉娆忎簵闂佽法鍠撴慨鎾及閵夆晜鐓ラ柣鏂挎惈瀛濈紓浣哄У閻╊垶寮婚弴鐔虹瘈闊洦绋掗宥夋⒑缂佹绠栧┑鐐诧工椤繘宕崟顓熸闂佹悶鍎滈崘顭戠€遍梻鍌欑閹诧繝寮婚妸褎宕叉俊顖欒閸ゆ洟鏌＄仦璇插姎闁藉啰鍠栭弻鏇熷緞閸繂濮㈤梺鍛娚戦幃鍌氼潖閾忚鍏滈柛娑卞幘閸旂兘姊洪崨濠冪叆缂佸鎸抽崺銏狀吋閸滀胶鍙嗛梺鍓插亞閸犳捇宕㈤幘缁樷拺缂備焦锚閻忥箓鏌ㄥ顑芥斀妞ゆ梻鎳撴禍楣冩⒒閸屾瑧顦﹂柟纰卞亰楠炲﹨绠涘☉娆忎簵闂佽法鍠撴慨鎾及?// Proxy Engine
 // 闂傚倸鍊搁崐椋庣矆娴ｅ搫顥氭い鎾卞灩绾惧潡鏌曢崼婵愭Ц缂佲偓婢舵劗鍙撻柛銉ｅ妿閳藉鏌ｉ妶澶岀暫闁哄矉绱曟禒锔炬嫚閹绘帒顫撻梻浣虹帛閹稿鎯勯鐐茶摕闁绘柨鍚嬮崵瀣亜閹哄棗浜炬繝寰枫倕袚缂佺粯鐩畷銊╊敊閸撗呭帨闂備礁鎼懟顖滅矓瑜版帒绠栨繝濠傚悩閻旂厧浼犻柛鏇炵仛缂嶅倿姊婚崒娆戭槮闁圭⒈鍋婇獮濠呯疀濞戞瑥浜楅梺璺ㄥ枔婵挳寮伴妷鈺傜叆闁绘柨鎼瓭缂備胶濮甸惄顖炲蓟閺囩喓绡€闊洦绋掗宥夋⒑缂佹绠栧┑鐐诧工椤繘宕崟顓熸闂佹悶鍎滈崘顭戠€遍梻鍌欑閹诧繝寮婚妸褎宕叉俊顖欒閸ゆ洟鏌＄仦璇插姎闁藉啰鍠栭弻鏇熷緞閸繂濮㈤梺鍛娚戦幃鍌氼潖閾忚鍏滈柛娑卞幘閸旂兘姊洪崨濠冪叆缂佸鎸抽崺銏狀吋閸滀胶鍙嗛梺鍓插亞閸犳捇宕㈤幘缁樷拺缂備焦锚閻忥箓鏌ㄥ顑芥斀妞ゆ梻鎳撴禍楣冩⒒閸屾瑧顦﹂柟纰卞亰楠炲﹨绠涘☉娆忎簵闂佽法鍠撴慨鎾及閵夆晜鐓ラ柣鏂挎惈瀛濈紓浣哄У閻╊垶寮婚弴鐔虹瘈闊洦绋掗宥夋⒑缂佹绠栧┑鐐诧工椤繘宕崟顓熸闂佹悶鍎滈崘顭戠€遍梻鍌欑閹诧繝寮婚妸褎宕叉俊顖欒閸ゆ洟鏌＄仦璇插姎闁藉啰鍠栭弻鏇熷緞閸繂濮㈤梺鍛娚戦幃鍌氼潖閾忚鍏滈柛娑卞幘閸旂兘姊洪崨濠冪叆缂佸鎸抽崺銏狀吋閸滀胶鍙嗛梺鍓插亞閸犳捇宕㈤幘缁樷拺缂備焦锚閻忥箓鏌ㄥ顑芥斀妞ゆ梻鎳撴禍楣冩⒒閸屾瑧顦﹂柟纰卞亰楠炲﹨绠涘☉娆忎簵闂佽法鍠撴慨鎾及閵夆晜鐓ラ柣鏂挎惈瀛濈紓浣哄У閻╊垶寮婚弴鐔虹瘈闊洦绋掗宥夋⒑缂佹绠栧┑鐐诧工椤繘宕崟顓熸闂佹悶鍎滈崘顭戠€遍梻鍌欑閹诧繝寮婚妸褎宕叉俊顖欒閸ゆ洟鏌＄仦璇插姎闁藉啰鍠栭弻鏇熷緞閸繂濮㈤梺鍛娚戦幃鍌氼潖閾忚鍏滈柛娑卞幘閸旂兘姊洪崨濠冪叆缂佸鎸抽崺銏狀吋閸滀胶鍙嗛梺鍓插亞閸犳捇宕㈤幘缁樷拺缂備焦锚閻忥箓鏌ㄥ顑芥斀妞ゆ梻鎳撴禍楣冩⒒閸屾瑧顦﹂柟纰卞亰楠炲﹨绠涘☉娆忎簵闂佽法鍠撴慨鎾及閵夆晜鐓ラ柣鏂挎惈瀛濈紓浣哄У閻╊垶寮婚弴鐔虹瘈闊洦绋掗宥夋⒑缂佹绠栧┑鐐诧工椤繘宕崟顓熸闂佹悶鍎滈崘顭戠€遍梻鍌欑閹诧繝寮婚妸褎宕叉俊顖欒閸ゆ洟鏌＄仦璇插姎闁藉啰鍠栭弻鏇熷緞閸繂濮㈤梺鍛娚戦幃鍌氼潖閾忚鍏滈柛娑卞幘閸旂兘姊洪崨濠冪叆缂佸鎸抽崺銏狀吋閸滀胶鍙嗛梺鍓插亞閸犳捇宕㈤幘缁樷拺缂備焦锚閻忥箓鏌ㄥ顑芥斀妞ゆ梻鎳撴禍楣冩⒒閸屾瑧顦﹂柟纰卞亰楠炲﹨绠涘☉娆忎簵闂佽法鍠撴慨鎾及閵夆晜鐓ラ柣鏂挎惈瀛濈紓浣哄У閻╊垶寮婚弴鐔虹瘈闊洦绋掗宥夋⒑缂佹绠栧┑鐐诧工椤繘宕崟顓熸闂佹悶鍎滈崘顭戠€遍梻鍌欑閹诧繝寮婚妸褎宕叉俊顖欒閸ゆ洟鏌＄仦璇插姎闁藉啰鍠栭弻鏇熷緞閸繂濮㈤梺鍛娚戦幃鍌氼潖閾忚鍏滈柛娑卞幘閸旂兘姊洪崨濠冪叆缂佸鎸抽崺銏狀吋閸滀胶鍙嗛梺鍓插亞閸犳捇宕㈤幘缁樷拺缂備焦锚閻忥箓鏌ㄥ顑芥斀妞ゆ梻鎳撴禍楣冩⒒閸屾瑧顦﹂柟纰卞亰楠炲﹨绠涘☉娆忎簵闂佽法鍠撴慨鎾及閵夆晜鐓ラ柣鏂挎惈瀛濈紓浣哄У閻╊垶寮婚弴鐔虹瘈闊洦绋掗宥夋⒑缂佹绠栧┑鐐诧工椤繘宕崟顓熸闂佹悶鍎滈崘顭戠€遍梻鍌欑閹诧繝寮婚妸褎宕叉俊顖欒閸ゆ洟鏌＄仦璇插姎闁藉啰鍠栭弻鏇熷緞閸繂濮㈤梺鍛娚戦幃鍌氼潖閾忚鍏滈柛娑卞幘閸旂兘姊洪崨濠冪叆缂佸鎸抽崺銏狀吋閸滀胶鍙嗛梺鍓插亞閸犳捇宕㈤幘缁樷拺缂備焦锚閻忥箓鏌ㄥ顑芥斀妞ゆ梻鎳撴禍楣冩⒒閸屾瑧顦﹂柟纰卞亰楠炲﹨绠涘☉娆忎簵闂佽法鍠撴慨鎾及閵夆晜鐓ラ柣鏂挎惈瀛濈紓浣哄У閻╊垶寮婚弴鐔虹瘈闊洦绋掗宥夋⒑缂佹绠栧┑鐐诧工椤繘宕崟顓熸闂佹悶鍎滈崘顭戠€遍梻鍌欑閹诧繝寮婚妸褎宕叉俊顖欒閸ゆ洟鏌＄仦璇插姎闁藉啰鍠栭弻鏇熷緞閸繂濮㈤梺鍛娚戦幃鍌氼潖閾忚鍏滈柛娑卞幘閸旂兘姊洪崨濠冪叆缂佸鎸抽崺銏狀吋閸滀胶鍙嗛梺鍓插亞閸犳捇宕㈤幘缁樷拺缂備焦锚閻忥箓鏌ㄥ顑芥斀妞ゆ梻鎳撴禍楣冩⒒閸屾瑧顦﹂柟纰卞亰楠炲﹨绠涘☉娆忎簵闂佽法鍠撴慨鎾及?
+type redirectFollowTransport struct {
+	base         http.RoundTripper
+	playbackHost string
+	profile      UAProfile
+}
+
+func (t *redirectFollowTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.base.RoundTrip(req)
+	if err != nil {
+		return nil, err
+	}
+	for i := 0; i < 3; i++ {
+		if resp.StatusCode != 301 && resp.StatusCode != 302 && resp.StatusCode != 307 && resp.StatusCode != 308 {
+			break
+		}
+		loc := resp.Header.Get("Location")
+		if loc == "" {
+			break
+		}
+		locURL, err := url.Parse(loc)
+		if err != nil {
+			break
+		}
+		if locURL.Host == "" {
+			locURL = req.URL.ResolveReference(locURL)
+		}
+		if !strings.EqualFold(locURL.Host, t.playbackHost) {
+			break
+		}
+		resp.Body.Close()
+		newReq, err := http.NewRequestWithContext(req.Context(), req.Method, locURL.String(), nil)
+		if err != nil {
+			break
+		}
+		for k, v := range req.Header {
+			newReq.Header[k] = v
+		}
+		newReq.Host = locURL.Host
+		applyUAProfileHeaders(newReq.Header, t.profile)
+		resp, err = t.base.RoundTrip(newReq)
+		if err != nil {
+			return nil, err
+		}
+		req = newReq
+	}
+	return resp, nil
+}
+
 var embyAuthClientRe = regexp.MustCompile(`(?i)(Client=")[^"]*"`)
 var embyAuthVersionRe = regexp.MustCompile(`(?i)(Version=")[^"]*"`)
 
@@ -746,9 +805,16 @@ func (pm *ProxyManager) StartSite(site Site) error {
 	inst := &ProxyInstance{Site: site}
 	inst.persistedTraffic.Store(site.TrafficUsed)
 
+	isRedirectMode := playbackTarget != nil && site.PlaybackMode == "redirect"
+
 	proxy := &httputil.ReverseProxy{
 		Director: func(req *http.Request) {
-			upstream := upstreamTargetForRequest(req, target, playbackTarget)
+			var upstream *url.URL
+			if isRedirectMode {
+				upstream = target
+			} else {
+				upstream = upstreamTargetForRequest(req, target, playbackTarget)
+			}
 			req.URL.Scheme = upstream.Scheme
 			req.URL.Host = upstream.Host
 			req.Host = upstream.Host
@@ -764,6 +830,14 @@ func (pm *ProxyManager) StartSite(site Site) error {
 			w.WriteHeader(http.StatusBadGateway)
 			w.Write([]byte(`{"error":"upstream unavailable"}`))
 		},
+	}
+
+	if isRedirectMode {
+		proxy.Transport = &redirectFollowTransport{
+			base:         http.DefaultTransport,
+			playbackHost: playbackTarget.Host,
+			profile:      profile,
+		}
 	}
 
 	// Speed limit in bytes/sec (field is in Mbps, 0 = unlimited)
@@ -785,7 +859,11 @@ func (pm *ProxyManager) StartSite(site Site) error {
 
 		// 闂傚倸鍊搁崐椋庣矆娓氣偓瀹曨垶宕稿Δ鈧崒銊︾節婵犲倻澧曠痪鎯ь煼閺岀喖宕滆鐢盯鏌ｉ幘鍐叉殻闁哄本绋栫粻娑㈠箼閸愨敩锔界箾?WebSocket upgrade 闂傚倸鍊搁崐椋庣矆娓氣偓瀹曨垶宕稿Δ鈧崒銊︾節婵犲倻澧曠痪鎯ь煼閺岀喖宕滆鐢盯鏌ｉ幘鍐叉殻闁哄本绋栫粻娑㈠箼閸愨敩锔界箾?
 		if isWebSocketUpgrade(r) {
-			handleWebSocket(w, r, upstreamTargetForRequest(r, target, playbackTarget), profile, inst)
+			wsTarget := upstreamTargetForRequest(r, target, playbackTarget)
+			if isRedirectMode {
+				wsTarget = target
+			}
+			handleWebSocket(w, r, wsTarget, profile, inst)
 			return
 		}
 
@@ -1065,7 +1143,7 @@ func healthProbeURLs(target *url.URL) []string {
 }
 
 func playbackProbeURLs(target *url.URL) []string {
-	return buildProbeURLs(target, []string{"Videos", "emby/Videos", "Audio", "emby/Audio", "LiveTV", "emby/LiveTV"})
+	return healthProbeURLs(target)
 }
 
 type diagProbePlan struct {
@@ -1233,17 +1311,18 @@ func probePlaybackHealth(targetURL string) DiagHealth {
 		return DiagHealth{
 			Status: "offline",
 			Probe: DiagProbe{
-				Kind:   "playback_path",
-				Method: http.MethodHead,
+				Kind:   "metadata_api",
+				Method: http.MethodGet,
 			},
 			Error: err.Error(),
 		}
 	}
 	return probeTargetHealth(diagProbePlan{
 		BaseURL:       target.String(),
-		Kind:          "playback_path",
-		Method:        http.MethodHead,
+		Kind:          "metadata_api",
+		Method:        http.MethodGet,
 		CandidateURLs: playbackProbeURLs(target),
+		ParseVersion:  true,
 	})
 }
 
@@ -1501,6 +1580,7 @@ func (a *App) handleSites(w http.ResponseWriter, r *http.Request) {
 			ListenPort        int    `json:"listen_port"`
 			TargetURL         string `json:"target_url"`
 			PlaybackTargetURL string `json:"playback_target_url"`
+			PlaybackMode      string `json:"playback_mode"`
 			UAMode            string `json:"ua_mode"`
 			Quota             int64  `json:"traffic_quota"`
 			SpeedLimit        int    `json:"speed_limit"`
@@ -1516,7 +1596,10 @@ func (a *App) handleSites(w http.ResponseWriter, r *http.Request) {
 		if req.UAMode == "" {
 			req.UAMode = "infuse"
 		}
-		site, err := a.db.CreateSite(req.Name, req.ListenPort, req.TargetURL, req.PlaybackTargetURL, req.UAMode, req.Quota, req.SpeedLimit)
+		if req.PlaybackMode == "" {
+			req.PlaybackMode = "direct"
+		}
+		site, err := a.db.CreateSite(req.Name, req.ListenPort, req.TargetURL, req.PlaybackTargetURL, req.PlaybackMode, req.UAMode, req.Quota, req.SpeedLimit)
 		if err != nil {
 			a.jsonErr(w, 500, err.Error())
 			return
@@ -1605,6 +1688,7 @@ func (a *App) handleSiteByID(w http.ResponseWriter, r *http.Request) {
 			ListenPort        int     `json:"listen_port"`
 			TargetURL         string  `json:"target_url"`
 			PlaybackTargetURL *string `json:"playback_target_url"`
+			PlaybackMode      *string `json:"playback_mode"`
 			UAMode            string  `json:"ua_mode"`
 			Quota             int64   `json:"traffic_quota"`
 			SpeedLimit        int     `json:"speed_limit"`
@@ -1617,10 +1701,14 @@ func (a *App) handleSiteByID(w http.ResponseWriter, r *http.Request) {
 		if req.PlaybackTargetURL != nil {
 			playbackTargetURL = *req.PlaybackTargetURL
 		}
+		playbackMode := oldSite.PlaybackMode
+		if req.PlaybackMode != nil {
+			playbackMode = *req.PlaybackMode
+		}
 		if req.UAMode == "" {
 			req.UAMode = oldSite.UAMode
 		}
-		if err := a.db.UpdateSite(id, req.Name, req.ListenPort, req.TargetURL, playbackTargetURL, req.UAMode, req.Quota, req.SpeedLimit); err != nil {
+		if err := a.db.UpdateSite(id, req.Name, req.ListenPort, req.TargetURL, playbackTargetURL, playbackMode, req.UAMode, req.Quota, req.SpeedLimit); err != nil {
 			a.jsonErr(w, 500, err.Error())
 			return
 		}
@@ -1635,7 +1723,7 @@ func (a *App) handleSiteByID(w http.ResponseWriter, r *http.Request) {
 				a.pm.StopSite(id)
 			}
 			if err := a.pm.StartSite(*site); err != nil {
-				if rollbackErr := a.db.UpdateSite(oldSite.ID, oldSite.Name, oldSite.ListenPort, oldSite.TargetURL, oldSite.PlaybackTargetURL, oldSite.UAMode, oldSite.TrafficQuota, oldSite.SpeedLimit); rollbackErr != nil {
+				if rollbackErr := a.db.UpdateSite(oldSite.ID, oldSite.Name, oldSite.ListenPort, oldSite.TargetURL, oldSite.PlaybackTargetURL, oldSite.PlaybackMode, oldSite.UAMode, oldSite.TrafficQuota, oldSite.SpeedLimit); rollbackErr != nil {
 					a.jsonErr(w, 500, fmt.Sprintf("start updated site: %v; rollback update: %v", err, rollbackErr))
 					return
 				}

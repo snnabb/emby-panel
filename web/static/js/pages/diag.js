@@ -225,12 +225,12 @@ function playbackNote(playback, primary) {
   }
 
   const probe = playback.health && playback.health.probe ? playback.health.probe : {};
-  if (probe.kind === 'playback_path') {
-    const probeText = probeRequestText(probe) || 'HEAD 播放路径探针';
+  if (probe.kind === 'metadata_api' || probe.kind === 'reachability_fallback') {
+    const probeText = probeRequestText(probe) || 'GET Metadata / API 探针';
     if (playback.show_tls) {
-      return `播放回源是独立 HTTPS 上游：${playback.effective_url || '--'}。当前健康块使用 ${probeText} 做轻量播放路径探针，不代表完整播放一定成功。`;
+      return `播放回源是独立 HTTPS 上游：${playback.effective_url || '--'}。当前健康块使用与主回源一致的 ${probeText} 做可达性探针，不代表完整播放一定成功。`;
     }
-    return `播放回源是独立上游：${playback.effective_url || '--'}。当前健康块使用 ${probeText} 做轻量播放路径探针，不代表完整播放一定成功。`;
+    return `播放回源是独立上游：${playback.effective_url || '--'}。当前健康块使用与主回源一致的 ${probeText} 做可达性探针，不代表完整播放一定成功。`;
   }
 
   if (playback.show_tls) {
@@ -241,7 +241,6 @@ function playbackNote(playback, primary) {
 
 function probeLabel(probe) {
   if (!probe || !probe.kind) return '--';
-  if (probe.kind === 'playback_path') return '播放路径轻量探针';
   if (probe.kind === 'reachability_fallback') return '可达性回退探针';
   if (probe.kind === 'metadata_api') return 'Metadata / API 探针';
   return probe.kind;
