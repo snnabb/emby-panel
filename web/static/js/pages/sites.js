@@ -88,7 +88,11 @@ async function loadSites() {
 
 function renderPlaybackRow(site) {
   const playback = (site.playback_target_url || '').trim();
-  if (!playback) {
+  let extraHosts = [];
+  try { extraHosts = JSON.parse(site.stream_hosts || '[]'); } catch(e) {}
+  const totalHosts = (playback ? 1 : 0) + extraHosts.length;
+
+  if (totalHosts === 0) {
     return `
       <div class="site-row">
         <span class="site-row-label">播放回源</span>
@@ -97,7 +101,7 @@ function renderPlaybackRow(site) {
     `;
   }
 
-  if (playback === (site.target_url || '').trim()) {
+  if (totalHosts === 1 && playback === (site.target_url || '').trim()) {
     return `
       <div class="site-row">
         <span class="site-row-label">播放回源</span>
@@ -107,16 +111,27 @@ function renderPlaybackRow(site) {
   }
 
   const modeLabel = site.playback_mode === 'redirect' ? '重定向跟随' : '直连分流';
-  return `
+  let rows = '';
+  if (playback) {
+    rows += `
     <div class="site-row">
       <span class="site-row-label">播放回源</span>
       <span class="mono">${esc(playback)}</span>
-    </div>
+    </div>`;
+  }
+  for (const h of extraHosts) {
+    rows += `
+    <div class="site-row">
+      <span class="site-row-label">播放回源</span>
+      <span class="mono">${esc(h)}</span>
+    </div>`;
+  }
+  rows += `
     <div class="site-row">
       <span class="site-row-label">播放模式</span>
       <span class="mono">${modeLabel}</span>
-    </div>
-  `;
+    </div>`;
+  return rows;
 }
 
 function showSiteModal(site) {
@@ -135,9 +150,10 @@ function showSiteModal(site) {
       <div class="form-help">网页、API 和默认回源都走这里。</div>
     </div>
     <div class="form-group">
-      <label>播放回源地址（可选，留空跟随主回源）</label>
-      <input type="text" class="form-input" id="m-playback-target" value="${isEdit ? esc(site.playback_target_url || '') : ''}" placeholder="仅在播放、转码或直链资源需要独立上游时填写">
-      <div class="form-help">仅在播放、转码或直链资源需要独立上游时填写。</div>
+      <label>播放回源列表（可选，留空跟随主回源）</label>
+      <div id="m-playback-list"></div>
+      <button type="button" class="btn-ghost" id="m-add-playback" style="margin-top:6px;font-size:13px">+ 添加播放回源</button>
+      <div class="form-help">播放、转码或直链资源的独立上游地址。可添加多个，用于多推流/播放节点场景。</div>
     </div>
     <div class="form-group" id="playback-mode-group" style="display:none">
       <label>播放模式</label>
@@ -145,7 +161,7 @@ function showSiteModal(site) {
         <option value="direct" ${(!isEdit || site.playback_mode !== 'redirect') ? 'selected' : ''}>直连分流</option>
         <option value="redirect" ${isEdit && site.playback_mode === 'redirect' ? 'selected' : ''}>重定向跟随</option>
       </select>
-      <div class="form-help">直连分流：播放请求直接发送到播放回源（适合完整 Emby 实例）。重定向跟随：所有请求经主回源，自动跟随重定向到播放回源（适合 CDN 签名节点）。</div>
+      <div class="form-help">直连分流：播放请求直接发送到首个播放回源（适合完整 Emby 实例）。重定向跟随：所有请求经主回源，自动跟随重定向到任一播放回源（适合多节点 CDN）。</div>
     </div>
     <div class="form-group">
       <label>监听端口</label>
@@ -170,20 +186,60 @@ function showSiteModal(site) {
     <button class="btn-modal primary" id="m-submit">${isEdit ? '保存' : '创建'}</button>
   `;
 
-  const playbackInput = document.getElementById('m-playback-target');
+  // Build initial playback list from existing data
+  const listContainer = document.getElementById('m-playback-list');
   const modeGroup = document.getElementById('playback-mode-group');
+  let existingHosts = [];
+  if (isEdit) {
+    if ((site.playback_target_url || '').trim()) existingHosts.push(site.playback_target_url.trim());
+    try {
+      const extra = JSON.parse(site.stream_hosts || '[]');
+      for (const h of extra) if (h && h.trim()) existingHosts.push(h.trim());
+    } catch(e) {}
+  }
+  if (existingHosts.length === 0) existingHosts = [''];
+
+  function renderPlaybackInputs() {
+    listContainer.innerHTML = existingHosts.map((val, idx) => `
+      <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center">
+        <input type="text" class="form-input m-pb-input" value="${esc(val)}" placeholder="${idx === 0 ? '主播放回源地址' : '额外播放回源地址'}" style="flex:1">
+        ${existingHosts.length > 1 ? `<button type="button" class="btn-ghost danger m-pb-remove" data-idx="${idx}" style="padding:4px 8px;font-size:13px;flex-shrink:0">删除</button>` : ''}
+      </div>
+    `).join('');
+    listContainer.querySelectorAll('.m-pb-remove').forEach(btn => {
+      btn.onclick = () => {
+        existingHosts.splice(parseInt(btn.dataset.idx), 1);
+        renderPlaybackInputs();
+        toggleModeGroup();
+      };
+    });
+    listContainer.querySelectorAll('.m-pb-input').forEach((inp, idx) => {
+      inp.oninput = () => { existingHosts[idx] = inp.value; toggleModeGroup(); };
+    });
+  }
+  renderPlaybackInputs();
+
+  document.getElementById('m-add-playback').onclick = () => {
+    existingHosts.push('');
+    renderPlaybackInputs();
+    const inputs = listContainer.querySelectorAll('.m-pb-input');
+    if (inputs.length) inputs[inputs.length - 1].focus();
+  };
+
   function toggleModeGroup() {
-    modeGroup.style.display = playbackInput.value.trim() ? '' : 'none';
+    const hasAny = existingHosts.some(h => h.trim());
+    modeGroup.style.display = hasAny ? '' : 'none';
   }
   toggleModeGroup();
-  playbackInput.addEventListener('input', toggleModeGroup);
 
   document.getElementById('m-submit').onclick = async () => {
+    const allHosts = existingHosts.map(h => h.trim()).filter(Boolean);
     const data = {
       name: document.getElementById('m-name').value.trim(),
       target_url: document.getElementById('m-target').value.trim(),
-      playback_target_url: document.getElementById('m-playback-target').value.trim(),
+      playback_target_url: allHosts.length > 0 ? allHosts[0] : '',
       playback_mode: document.getElementById('m-playback-mode').value,
+      stream_hosts: allHosts.length > 1 ? allHosts.slice(1) : [],
       listen_port: parseInt(document.getElementById('m-port').value),
       ua_mode: document.getElementById('m-ua').value,
       traffic_quota: parseInt(document.getElementById('m-quota').value || 0) * 1073741824,

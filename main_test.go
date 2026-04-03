@@ -167,7 +167,7 @@ func TestDiagnoseSiteUsesRootSystemInfoProbe(t *testing.T) {
 	defer server.Close()
 
 	app := newTestApp(t)
-	site, err := app.db.CreateSite("diag", freePort(t), server.URL, "", "direct", "infuse", 0, 0)
+	site, err := app.db.CreateSite("diag", freePort(t), server.URL, "", "direct", "[]", "infuse", 0, 0)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestDiagnoseSiteTreatsReachable4xxAsOnline(t *testing.T) {
 	defer server.Close()
 
 	app := newTestApp(t)
-	site, err := app.db.CreateSite("diag", freePort(t), server.URL, "", "direct", "infuse", 0, 0)
+	site, err := app.db.CreateSite("diag", freePort(t), server.URL, "", "direct", "[]", "infuse", 0, 0)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestDiagnoseSiteMarksRootReachabilityFallbackProbe(t *testing.T) {
 	defer server.Close()
 
 	app := newTestApp(t)
-	site, err := app.db.CreateSite("diag", freePort(t), server.URL, "", "direct", "infuse", 0, 0)
+	site, err := app.db.CreateSite("diag", freePort(t), server.URL, "", "direct", "[]", "infuse", 0, 0)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestHandleSiteDiagReturnsPlaybackFallbackMetadata(t *testing.T) {
 	defer apiServer.Close()
 
 	app := newTestApp(t)
-	site, err := app.db.CreateSite("diag", freePort(t), apiServer.URL, "", "direct", "infuse", 0, 0)
+	site, err := app.db.CreateSite("diag", freePort(t), apiServer.URL, "", "direct", "[]", "infuse", 0, 0)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}
@@ -330,7 +330,7 @@ func TestHandleSiteDiagMarksSharedPlaybackTarget(t *testing.T) {
 	defer apiServer.Close()
 
 	app := newTestApp(t)
-	site, err := app.db.CreateSite("diag", freePort(t), apiServer.URL, apiServer.URL, "direct", "infuse", 0, 0)
+	site, err := app.db.CreateSite("diag", freePort(t), apiServer.URL, apiServer.URL, "direct", "[]", "infuse", 0, 0)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}
@@ -391,7 +391,7 @@ func TestHandleSiteDiagExposesSeparatePlaybackTLS(t *testing.T) {
 	defer playbackServer.Close()
 
 	app := newTestApp(t)
-	site, err := app.db.CreateSite("diag", freePort(t), apiServer.URL, playbackServer.URL, "direct", "infuse", 0, 0)
+	site, err := app.db.CreateSite("diag", freePort(t), apiServer.URL, playbackServer.URL, "direct", "[]", "infuse", 0, 0)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}
@@ -493,7 +493,7 @@ func TestHandleSiteDiagReturnsSpoofedVersionField(t *testing.T) {
 	defer apiServer.Close()
 
 	app := newTestApp(t)
-	site, err := app.db.CreateSite("diag", freePort(t), apiServer.URL, "", "direct", "client", 0, 0)
+	site, err := app.db.CreateSite("diag", freePort(t), apiServer.URL, "", "direct", "[]", "client", 0, 0)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}
@@ -564,7 +564,7 @@ func TestHandleSiteToggleRevertsWhenStartFails(t *testing.T) {
 	}
 	defer occupied.Close()
 
-	site, err := app.db.CreateSite("disabled", port, "http://127.0.0.1:8096", "", "direct", "infuse", 0, 0)
+	site, err := app.db.CreateSite("disabled", port, "http://127.0.0.1:8096", "", "direct", "[]", "infuse", 0, 0)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}
@@ -592,7 +592,7 @@ func TestHandleSiteToggleRevertsWhenStartFails(t *testing.T) {
 func TestHandleSiteUpdateRollsBackOnStartFailure(t *testing.T) {
 	app := newTestApp(t)
 	initialPort := freePort(t)
-	site, err := app.db.CreateSite("stable", initialPort, "http://127.0.0.1:8096", "", "direct", "infuse", 0, 0)
+	site, err := app.db.CreateSite("stable", initialPort, "http://127.0.0.1:8096", "", "direct", "[]", "infuse", 0, 0)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}
@@ -636,7 +636,7 @@ func TestHandleSiteUpdateRollsBackOnStartFailure(t *testing.T) {
 
 func TestFlushTrafficUpdatesBaselineAndStopPersistsPendingUsage(t *testing.T) {
 	app := newTestApp(t)
-	site, err := app.db.CreateSite("traffic", freePort(t), "http://127.0.0.1:8096", "", "direct", "infuse", 1024, 0)
+	site, err := app.db.CreateSite("traffic", freePort(t), "http://127.0.0.1:8096", "", "direct", "[]", "infuse", 1024, 0)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}
@@ -666,7 +666,7 @@ func TestFlushTrafficUpdatesBaselineAndStopPersistsPendingUsage(t *testing.T) {
 
 func TestAddTrafficAggregatesSameHour(t *testing.T) {
 	app := newTestApp(t)
-	site, err := app.db.CreateSite("aggregate", freePort(t), "http://127.0.0.1:8096", "", "direct", "infuse", 0, 0)
+	site, err := app.db.CreateSite("aggregate", freePort(t), "http://127.0.0.1:8096", "", "direct", "[]", "infuse", 0, 0)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}
@@ -729,7 +729,7 @@ func TestProxyRoutesPlaybackRequestsToPlaybackTarget(t *testing.T) {
 	}))
 	defer playbackServer.Close()
 
-	site, err := app.db.CreateSite("split", freePort(t), apiServer.URL, playbackServer.URL, "direct", "infuse", 0, 0)
+	site, err := app.db.CreateSite("split", freePort(t), apiServer.URL, playbackServer.URL, "direct", "[]", "infuse", 0, 0)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}
@@ -766,7 +766,7 @@ func TestProxyPlaybackRequestsFallBackToMainTarget(t *testing.T) {
 	}))
 	defer apiServer.Close()
 
-	site, err := app.db.CreateSite("single", freePort(t), apiServer.URL, "", "direct", "infuse", 0, 0)
+	site, err := app.db.CreateSite("single", freePort(t), apiServer.URL, "", "direct", "[]", "infuse", 0, 0)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}
