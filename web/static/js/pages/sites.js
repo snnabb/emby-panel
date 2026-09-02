@@ -1377,9 +1377,14 @@ async function showSiteModal(site) {
 	    <div id="m-failover-lines"></div>
 	  </div>
 		  <div class="form-help">先选择 HTTP 或 HTTPS，再填写域名/IP 和可选 Base 路径。端口留空时自动使用 HTTPS 443 或 HTTP 80；最多 7 条备用线路。</div>
-	</div>
+		</div>
 		<div class="form-group site-form-wide">
-		  <label>主回源固定请求头（可选）</label>
+		  <label>播放回源地址（可选）</label>
+		  <input type="text" class="form-input" id="m-playback-target" value="${isEdit ? esc(site.playback_target_url || '') : ''}" placeholder="如：playback.example.com 或 https://playback.example.com:443" inputmode="url" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="2048">
+		  <div class="form-help">留空时播放请求跟随主线路；填写后，播放、转码和直链媒体请求优先使用此独立回源。未写协议时，:443 使用 HTTPS，其他端口默认 HTTP。</div>
+		</div>
+			<div class="form-group site-form-wide">
+			  <label>主回源固定请求头（可选）</label>
 		  <div id="m-upstream-headers"></div>
 		  <button type="button" class="btn-ghost upstream-header-add" id="m-add-upstream-header" ${upstreamHeadersAvailable ? '' : 'disabled'}>+ 添加请求头</button>
 		  <div class="form-help">使用 UPSTREAM_HEADER_KEY 加密保存，不会回显；仅发送到主回源。</div>
@@ -1837,6 +1842,7 @@ async function showSiteModal(site) {
 				document.getElementById('m-target-address').value,
 				document.getElementById('m-target-port').value,
 			);
+			const playbackTargetURL = document.getElementById('m-playback-target').value.trim();
 			const nextDynamicProfile = normalizeDynamicProfile(dynamicProfileSelect?.value || dynamicPolicy.dynamic_profile);
 			const nextDynamicPolicy = {
 				dynamic_discovery_enabled: dynamicEnabledInput?.checked === true,
@@ -1870,7 +1876,7 @@ async function showSiteModal(site) {
 		        enabled: line.enabled !== false,
 		      })),
 		      failover_targets: failoverLines.filter(line => line.enabled !== false).map(line => joinUpstreamTargetAddress(line.scheme, line.address, line.port)).filter(Boolean),
-      playback_target_url: isEdit ? String(site.playback_target_url || '') : '',
+	      playback_target_url: playbackTargetURL,
       playback_mode: isEdit ? String(site.playback_mode || 'direct') : 'direct',
 		main_video_stream_mode: mainVideoModeSelect.value,
 		stream_hosts: isEdit ? normalizeStreamHosts(site.stream_hosts) : [],

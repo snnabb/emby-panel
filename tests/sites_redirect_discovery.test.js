@@ -430,7 +430,7 @@ test('profile risk notices and transition confirmations match the approved produ
   assert.equal(unchangedExtreme.requirement, 'none');
 });
 
-test('site modal presents proxy, direct main-video, and automatic discovery controls', async () => {
+test('site modal presents proxy, direct main-video, automatic discovery, and playback origin controls', async () => {
   const { sandbox, document } = loadModalHarness();
   await sandbox.showSiteModal(null);
   const body = document.getElementById('modal-body').innerHTML;
@@ -438,9 +438,11 @@ test('site modal presents proxy, direct main-video, and automatic discovery cont
   assert.match(body, /主视频流策略/);
   assert.match(body, /反代/);
   assert.match(body, /直连/);
-  assert.match(body, /直连仅适用于主视频文件/);
-  assert.match(body, /面板、API、HLS\/DASH 等仍由 Meridian 代理/);
-	  assert.equal(document.getElementById('m-main-video-mode').value, 'proxy');
+	  assert.match(body, /直连仅适用于主视频文件/);
+	  assert.match(body, /面板、API、HLS\/DASH 等仍由 Meridian 代理/);
+	  assert.match(body, /播放回源地址（可选）/);
+		  assert.equal(document.getElementById('m-main-video-mode').value, 'proxy');
+		  assert.equal(document.getElementById('m-playback-target').value, '');
 	  assert.ok(document.getElementById('m-dynamic-enabled'));
 	  assert.ok(document.getElementById('m-dynamic-profile'));
 	  assert.ok(document.getElementById('m-target-scheme'));
@@ -453,7 +455,6 @@ test('site modal presents proxy, direct main-video, and automatic discovery cont
 	  assert.match(body, /Compatible|兼容/);
 	  assert.match(body, /端口留空时自动使用 HTTPS 443 或 HTTP 80/);
 	  assert.match(body, /处理来源与 HTTPS 降级策略由所选模式自动设置/);
-	  assert.doesNotMatch(body, /播放回源/);
 });
 
 test('upstream line helpers preserve legacy targets and default new HTTPS ports', () => {
@@ -493,15 +494,16 @@ test('new site submission derives automatic discovery from the selected profile'
 	  document.getElementById('m-target-scheme').value = 'https';
 	  document.getElementById('m-target-address').value = 'origin.example';
 	  document.getElementById('m-target-port').value = '';
-  document.getElementById('m-ingress-mode').value = 'port';
+	  document.getElementById('m-playback-target').value = 'https://playback.example';
+	  document.getElementById('m-ingress-mode').value = 'port';
   document.getElementById('m-ingress-mode').onchange();
   document.getElementById('m-port').value = '8096';
 
   await document.getElementById('m-submit').onclick();
 
   assert.equal(state.creates.length, 1);
-  assert.equal(state.creates[0].target_url, 'https://origin.example');
-  assert.equal(state.creates[0].playback_target_url, '');
+	  assert.equal(state.creates[0].target_url, 'https://origin.example');
+	  assert.equal(state.creates[0].playback_target_url, 'https://playback.example');
   assert.equal(state.creates[0].playback_mode, 'direct');
   assert.equal(state.creates[0].main_video_stream_mode, 'proxy');
   assert.equal(state.creates[0].client_ip_mode, 'both');
@@ -790,7 +792,7 @@ test('edit modal exposes discovery policy and observation controls', async () =>
     public_host: '',
     ua_mode: 'infuse',
     client_ip_mode: 'real_ip',
-    playback_target_url: '',
+    playback_target_url: 'https://old-playback.example',
     main_video_stream_mode: 'direct',
     stream_hosts: [],
     upstream_headers: [],
@@ -802,8 +804,9 @@ test('edit modal exposes discovery policy and observation controls', async () =>
     dynamic_policy_revision: 2,
   };
 
-  await sandbox.showSiteModal(site);
-  assert.equal(state.opened, 1);
+	  await sandbox.showSiteModal(site);
+	  assert.equal(state.opened, 1);
+	  assert.equal(document.getElementById('m-playback-target').value, 'https://old-playback.example');
   assert.ok(document.getElementById('m-refresh-dynamic-observations'));
   assert.ok(document.getElementById('m-clear-dynamic-observations'));
   assert.ok(document.getElementById('m-dynamic-observations'));
@@ -811,8 +814,13 @@ test('edit modal exposes discovery policy and observation controls', async () =>
   assert.deepEqual(state.observationDeletes, []);
   assert.deepEqual(state.confirmations, []);
   assert.deepEqual(state.errors, []);
-  assert.equal(document.getElementById('m-main-video-mode').value, 'direct');
-  assert.equal(document.getElementById('m-client-ip-mode').value, 'real_ip');
+	  assert.equal(document.getElementById('m-main-video-mode').value, 'direct');
+	  assert.equal(document.getElementById('m-client-ip-mode').value, 'real_ip');
+
+	  document.getElementById('m-playback-target').value = 'https://playback.example';
+	  await document.getElementById('m-submit').onclick();
+	  assert.equal(state.updates.length, 1);
+	  assert.equal(state.updates[0].payload.playback_target_url, 'https://playback.example');
 });
 
 test('client IP forwarding selector exposes only the three node-level modes', () => {

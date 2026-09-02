@@ -18,25 +18,25 @@
 
 Meridian 把多站点反代、UA 身份、流量管控和故障诊断整合进一个管理面板。适合希望直接部署、不想手写多套反代配置的个人或小型 Emby 环境。
 
-最新发布：`v1.12.2`。当前版本统一采用双向流量计费（入站 + 出站，各计算一次），支持响应式趋势图、三档自动发现、线路级 HTTP/HTTPS 配置、标准 IANA 调度时区、Cloudflare DNS-01 泛域名证书，以及账户变更后的旧会话失效。
+最新发布：`v1.12.3`。当前版本统一采用双向流量计费（入站 + 出站，各计算一次），支持可选独立播放回源地址、响应式趋势图、三档自动发现、线路级 HTTP/HTTPS 配置、标准 IANA 调度时区、Cloudflare DNS-01 泛域名证书，以及账户变更后的旧会话失效。
 
 ## 界面预览
 
-	<table>
-	  <tr>
-	    <td align="center"><a href="docs/images/dashboard.png"><img src="docs/images/dashboard.png" width="380" alt="Meridian 空站仪表盘"></a><br><strong>仪表盘</strong></td>
-	    <td align="center"><a href="docs/images/sites.png"><img src="docs/images/sites.png" width="380" alt="Meridian 空站站点管理"></a><br><strong>站点管理</strong></td>
-	  </tr>
-	  <tr>
-	    <td align="center"><a href="docs/images/site-create.png"><img src="docs/images/site-create.png" width="380" alt="Meridian 站点编辑器"></a><br><strong>站点编辑器</strong></td>
-	    <td align="center"><a href="docs/images/global-settings-ui.png"><img src="docs/images/global-settings-ui.png" width="380" alt="Meridian 双向流量计费设置"></a><br><strong>全局设置</strong></td>
-	  </tr>
-	  <tr>
-	    <td align="center" colspan="2"><a href="docs/images/request-logs.png"><img src="docs/images/request-logs.png" width="760" alt="Meridian 空站请求日志"></a><br><strong>请求日志</strong></td>
-	  </tr>
-	</table>
+<table>
+  <tr>
+    <td align="center"><a href="docs/images/dashboard.png"><img src="docs/images/dashboard.png" width="380" alt="Meridian 空站仪表盘"></a><br><strong>仪表盘</strong></td>
+    <td align="center"><a href="docs/images/sites.png"><img src="docs/images/sites.png" width="380" alt="Meridian 空站站点管理"></a><br><strong>站点管理</strong></td>
+  </tr>
+  <tr>
+    <td align="center"><a href="docs/images/site-create.png"><img src="docs/images/site-create.png" width="380" alt="Meridian 站点编辑器"></a><br><strong>站点编辑器</strong></td>
+    <td align="center"><a href="docs/images/global-settings-ui.png"><img src="docs/images/global-settings-ui.png" width="380" alt="Meridian 双向流量计费设置"></a><br><strong>全局设置</strong></td>
+  </tr>
+  <tr>
+    <td align="center" colspan="2"><a href="docs/images/request-logs.png"><img src="docs/images/request-logs.png" width="760" alt="Meridian 空站请求日志"></a><br><strong>请求日志</strong></td>
+  </tr>
+</table>
 
-	<p align="center"><sub>截图来自 v1.12.2 临时全新数据库，未添加任何站点；点击图片查看原图。</sub></p>
+<p align="center"><sub>截图来自 v1.12.2 临时全新数据库，未添加任何站点；点击图片查看原图。</sub></p>
 
 ## 功能概览
 
@@ -108,7 +108,7 @@ Linux 可自动安装或复用 Nginx、Certbot，并为管理面板配置 HTTPS�
 |---|---|
 | **仪表盘** | 站点运行状态、实时连接、速度/请求/流量趋势、日志健康、Telegram 定时任务和当日概览；支持按站点和时间范围查看 |
 | **站点管理** | 添加、编辑、启停、删除和排序站点；显示入口地址、回源状态、流量额度、限速、缓存和线路延迟 |
-| **站点编辑器** | 配置入口模式、路径/域名前缀，以及采用独立协议/地址/端口字段的主线路和备用线路；自动发现只需选择三档模式，不再暴露无效的来源组合 |
+| **站点编辑器** | 配置入口模式、路径/域名前缀、可选独立播放回源地址，以及采用独立协议/地址/端口字段的主线路和备用线路；自动发现只需选择三档模式，不再暴露无效的来源组合 |
 | **日志记录** | 按站点、状态、资源类别和关键词检索请求；可控制写入字段和页面展示字段，日志不保存查询参数、令牌、Cookie 或正文 |
 | **故障诊断** | 分别检查主回源、播放回源、备用线路、TLS、UA/请求头和本地代理状态；探针可达不等同于完整 Emby 播放可用 |
 | **全局设置** | 系统/UI、流量周期、IANA 调度时区、健康探测、日志存储及日志字段设置 |
