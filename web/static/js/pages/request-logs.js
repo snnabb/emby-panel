@@ -271,15 +271,15 @@ function renderRequestLogs() {
     if (typeof meridianSetTimezoneOffset === 'function') meridianSetTimezoneOffset(settings?.schedule_timezone_offset);
     requestLogApplyDisplaySettings(settings);
   }).catch(() => requestLogApplyDisplaySettings(null));
-  const scroller = typeof document.querySelector === 'function' ? document.querySelector('.request-log-table-scroll') : null;
-  if (scroller && typeof scroller.addEventListener === 'function') {
+  const scroller = document.querySelector ? document.querySelector('.request-log-table-scroll') : null;
+  if (scroller) {
     scroller.addEventListener('mouseenter', () => { requestLogUserInteracting = true; });
     scroller.addEventListener('mouseleave', () => { requestLogUserInteracting = false; });
   }
   const logBody = document.getElementById('request-log-body');
-  if (logBody && typeof logBody.addEventListener === 'function') {
+  if (logBody && logBody.addEventListener) {
     logBody.addEventListener('click', event => {
-      const row = event.target?.closest ? event.target.closest('tr[data-log-id]') : null;
+      const row = event.target.closest ? event.target.closest('tr[data-log-id]') : null;
       if (!row) return;
       const logId = row.dataset.logId;
       const next = row.nextElementSibling;
@@ -288,10 +288,8 @@ function renderRequestLogs() {
         row.classList.remove('log-row-expanded');
         return;
       }
-      if (typeof document.querySelectorAll === 'function') {
-        document.querySelectorAll('.log-detail-row').forEach(r => r.remove());
-        document.querySelectorAll('.log-row-expanded').forEach(r => r.classList.remove('log-row-expanded'));
-      }
+      document.querySelectorAll('.log-detail-row').forEach(r => r.remove());
+      document.querySelectorAll('.log-row-expanded').forEach(r => r.classList.remove('log-row-expanded'));
       const entry = currentRenderedLogs.find(l => String(l.id) === String(logId));
       if (!entry) return;
       row.classList.add('log-row-expanded');
@@ -303,7 +301,7 @@ function renderRequestLogs() {
           <div class="log-detail-card">
             <div class="log-detail-header">
               <span class="log-detail-path-badge">${esc(entry.method || 'GET')} ${esc(entry.path || '/')}</span>
-              <button type="button" class="log-detail-copy-btn" data-copy="${esc(entry.path || '/')}">复制路径</button>
+              <button type="button" class="log-detail-copy-btn">复制路径</button>
             </div>
             <div class="log-detail-grid">
               <div class="log-detail-item"><span class="log-detail-label">客户端 IP & 地区</span><span class="log-detail-val">${esc(entry.client_ip || '—')} (${esc(entry.client_region || '未知')})</span></div>
@@ -327,7 +325,7 @@ function renderRequestLogs() {
   loadRequestLogs({ showLoading: true });
   if (requestLogRefreshTimer) clearInterval(requestLogRefreshTimer);
   requestLogRefreshTimer = setInterval(() => {
-    if (Router.current === 'request-logs' && !requestLogUserInteracting) {
+    if (Router.current === 'request-logs' && !requestLogUserInteracting && !document.querySelector('.log-detail-row')) {
       loadRequestLogs({ showLoading: false });
     }
   }, 5000);

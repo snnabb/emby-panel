@@ -100,11 +100,10 @@ function renderDashboard() {
         </div>
       </div>
     `;
-
-    setupDashboardTrendControls();
-    observeDashboardTrendResize();
   }
 
+  setupDashboardTrendControls();
+  observeDashboardTrendResize();
   startDashSSE();
   loadDashboardTable();
   loadDashboardInsights();

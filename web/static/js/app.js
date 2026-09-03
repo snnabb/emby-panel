@@ -35,17 +35,13 @@
     setup_token_required: false,
   };
 
-  try {
-    if (window.localStorage && window.localStorage.getItem('meridian-theme') === 'light') {
-      window.localStorage.removeItem('meridian-theme');
-    }
-    if (window.MeridianTheme && typeof window.MeridianTheme.apply === 'function') {
-      window.MeridianTheme.apply('dark', false);
-    } else if (document.documentElement) {
-      document.documentElement.setAttribute('data-theme', 'dark');
-      document.documentElement.style.colorScheme = 'dark';
-    }
-  } catch (_) {}
+  // Enforce dark-only theme; theme.js handles the initial apply but clear any
+  // stale light-mode preference from localStorage to avoid a flash on reload.
+  try { if (window.localStorage) window.localStorage.removeItem('meridian-theme'); } catch (_) {}
+  if (document.documentElement) {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    document.documentElement.style.colorScheme = 'dark';
+  }
 
   function resetModalScroll() {
     const overlay = document.getElementById('modal-overlay');

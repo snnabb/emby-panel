@@ -137,4 +137,13 @@ test('zero-flicker page switching avoids blank screen opacity drops and preserve
   assert.match(sitesSource, /if \(!page\.querySelector\('#sites-grid'\)\)/);
 });
 
+test('account session card explicitly informs that all devices are invalidated on logout', () => {
+  const accountSource = fs.readFileSync(path.join(ROOT, 'web/static/js/pages/account.js'), 'utf8');
+  assert.match(accountSource, /作废所有设备的登录会话/);
+});
 
+test('request log detail avoids raw data-copy attribute in innerHTML and pauses auto-refresh when expanded', () => {
+  const reqLogSource = fs.readFileSync(path.join(ROOT, 'web/static/js/pages/request-logs.js'), 'utf8');
+  assert.doesNotMatch(reqLogSource, /data-copy="\$\{esc\(entry\.path/);
+  assert.match(reqLogSource, /!document\.querySelector\('\.log-detail-row'\)/);
+});
