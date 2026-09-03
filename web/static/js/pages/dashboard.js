@@ -14,94 +14,98 @@ let dashboardRealtimeTrendSiteSamples = new Map();
 
 function renderDashboard() {
   const page = document.getElementById('page-dashboard');
-  page.innerHTML = `
-    <h1 class="section-title fade-up">仪表盘</h1>
-    <p class="section-sub fade-up stagger-1">Emby 反代服务运行概览 <span class="live-indicator" id="sse-status">● 实时</span></p>
-    <div class="form-help fade-up stagger-1" style="margin:-4px 0 18px">当前面板域名：<span class="mono" id="s-panel-domain">—</span></div>
-    <div class="stats-row" id="dash-stats">
-      <div class="stat-card c-blue fade-up stagger-1">
-        <div class="stat-icon-wrap blue">
-          <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+  if (!page) return;
+  if (!page.querySelector('#dash-stats')) {
+    page.innerHTML = `
+      <h1 class="section-title">仪表盘</h1>
+      <p class="section-sub">Emby 反代服务运行概览 <span class="live-indicator" id="sse-status">● 实时</span></p>
+      <div class="form-help" style="margin:-4px 0 18px">当前面板域名：<span class="mono" id="s-panel-domain">—</span></div>
+      <div class="stats-row" id="dash-stats">
+        <div class="stat-card c-blue">
+          <div class="stat-icon-wrap blue">
+            <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          </div>
+          <div class="stat-number" id="s-total">—</div>
+          <div class="stat-title">站点总数</div>
         </div>
-        <div class="stat-number" id="s-total">—</div>
-        <div class="stat-title">站点总数</div>
-      </div>
-      <div class="stat-card c-green fade-up stagger-2">
-        <div class="stat-icon-wrap green">
-          <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        <div class="stat-card c-green">
+          <div class="stat-icon-wrap green">
+            <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          </div>
+          <div class="stat-number" id="s-running">—</div>
+          <div class="stat-title">运行中</div>
         </div>
-        <div class="stat-number" id="s-running">—</div>
-        <div class="stat-title">运行中</div>
-      </div>
-      <div class="stat-card c-teal fade-up stagger-3">
-        <div class="stat-icon-wrap teal">
-          <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        <div class="stat-card c-teal">
+          <div class="stat-icon-wrap teal">
+            <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          </div>
+        <div class="stat-number" id="s-traffic">0 B</div>
+  		<div class="stat-title" id="s-traffic-title">已用流量</div>
         </div>
-      <div class="stat-number" id="s-traffic">0 B</div>
-		<div class="stat-title" id="s-traffic-title">已用流量</div>
-      </div>
-      <div class="stat-card c-orange fade-up stagger-4">
-        <div class="stat-icon-wrap orange">
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <div class="stat-card c-orange">
+          <div class="stat-icon-wrap orange">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
+          <div class="stat-number" id="s-uptime">—</div>
+          <div class="stat-title">运行时长</div>
         </div>
-        <div class="stat-number" id="s-uptime">—</div>
-        <div class="stat-title">运行时长</div>
-      </div>
-      <div class="stat-card c-purple fade-up stagger-5">
-        <div class="stat-icon-wrap purple">
-          <svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
-        </div>
-        <div class="stat-number" id="s-cache">0 B</div>
-        <div class="stat-title">累计缓存</div>
-      </div>
-    </div>
-    <div class="dashboard-trend-toolbar fade-up stagger-4">
-      <div>
-        <div class="glass-card-title">数据趋势</div>
-        <div class="dashboard-trend-help" id="dashboard-trend-help">默认显示全部站点；“本月”按自然月 1 日至当前时间统计 · 数据时间 <span id="dashboard-trend-timezone">UTC+08:00</span></div>
-      </div>
-      <div class="dashboard-trend-controls">
-        <div class="dashboard-trend-control"><label for="dashboard-trend-site">站点</label><select id="dashboard-trend-site" class="form-select" aria-label="选择趋势站点"><option value="all">全部站点</option></select></div>
-        <div class="dashboard-trend-control"><label for="dashboard-trend-range">时间</label><select id="dashboard-trend-range" class="form-select" aria-label="选择趋势时间范围">
-          <option value="realtime">实时</option><option value="hour">1 小时</option><option value="6h">6 小时</option><option value="day">1 天</option><option value="7d">7 天</option><option value="month">本月</option><option value="custom">自定义</option>
-        </select></div>
-        <div class="dashboard-trend-custom" id="dashboard-trend-custom" hidden>
-          <label>开始时间<input type="datetime-local" id="dashboard-trend-start" class="form-input" step="60" aria-label="趋势开始时间"></label>
-          <span class="dashboard-trend-custom-separator" aria-hidden="true">至</span>
-          <label>结束时间<input type="datetime-local" id="dashboard-trend-end" class="form-input" step="60" aria-label="趋势结束时间"></label>
-          <button type="button" class="btn btn-primary dashboard-trend-apply" id="dashboard-trend-apply">应用</button>
+        <div class="stat-card c-purple">
+          <div class="stat-icon-wrap purple">
+            <svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
+          </div>
+          <div class="stat-number" id="s-cache">0 B</div>
+          <div class="stat-title">累计缓存</div>
         </div>
       </div>
-      <div class="dashboard-trend-custom-error" id="dashboard-trend-custom-error" role="alert" aria-live="polite" hidden></div>
-    </div>
-    <div class="dashboard-trend-grid fade-up stagger-4">
-      <section class="dashboard-trend-card" data-dashboard-chart="speed"><div class="glass-card-header"><div><div class="glass-card-title">速度</div><span class="dashboard-trend-unit">时间范围峰值</span></div><strong class="dashboard-trend-summary" id="dashboard-speed-summary">—</strong></div><div class="dashboard-trend-wrap"><canvas id="dashboardSpeedTrend" aria-label="速度趋势图"></canvas><div class="dashboard-chart-tooltip" hidden></div></div><div class="dashboard-trend-legend"><span><i class="download"></i>下载</span><span><i class="upload"></i>上传</span></div></section>
-      <section class="dashboard-trend-card" data-dashboard-chart="requests"><div class="glass-card-header"><div><div class="glass-card-title">请求</div><span class="dashboard-trend-unit">时间范围总数</span></div><strong class="dashboard-trend-summary" id="dashboard-requests-summary">—</strong></div><div class="dashboard-trend-wrap"><canvas id="dashboardRequestsTrend" aria-label="请求趋势图"></canvas><div class="dashboard-chart-tooltip" hidden></div></div><div class="dashboard-trend-legend"><span><i class="requests"></i>请求次数</span></div></section>
-      <section class="dashboard-trend-card" data-dashboard-chart="traffic"><div class="glass-card-header"><div><div class="glass-card-title">流量</div><span class="dashboard-trend-unit" id="dashboard-traffic-unit">计费流量总数</span></div><strong class="dashboard-trend-summary" id="dashboard-traffic-summary">—</strong></div><div class="dashboard-trend-wrap"><canvas id="dashboardTrafficTrend" aria-label="流量趋势图"></canvas><div class="dashboard-chart-tooltip" hidden></div></div><div class="dashboard-trend-legend"><span><i class="traffic"></i>计费流量</span></div></section>
-    </div>
-    <div class="dashboard-insights-grid fade-up stagger-5">
-      <section class="dashboard-insight-card" id="dashboard-log-health"><div class="dashboard-insight-head"><h2>日志写入</h2><span class="dashboard-health-dot"></span></div><p>正在读取…</p></section>
-      <section class="dashboard-insight-card" id="dashboard-schedule-health"><div class="dashboard-insight-head"><h2>定时任务</h2><span class="dashboard-health-dot"></span></div><p>正在读取…</p></section>
-    </div>
-    <div class="glass-card dashboard-site-status fade-up stagger-5">
-      <div class="glass-card-header">
-        <div class="glass-card-title"><span class="live-dot"></span>站点实时状态</div>
-        <div class="glass-card-title" style="font-size:.72rem;color:var(--white-38)" id="s-requests">0 请求</div>
+      <div class="dashboard-trend-toolbar">
+        <div>
+          <div class="glass-card-title">数据趋势</div>
+          <div class="dashboard-trend-help" id="dashboard-trend-help">默认显示全部站点；“本月”按自然月 1 日至当前时间统计 · 数据时间 <span id="dashboard-trend-timezone">UTC+08:00</span></div>
+        </div>
+        <div class="dashboard-trend-controls">
+          <div class="dashboard-trend-control"><label for="dashboard-trend-site">站点</label><select id="dashboard-trend-site" class="form-select" aria-label="选择趋势站点"><option value="all">全部站点</option></select></div>
+          <div class="dashboard-trend-control"><label for="dashboard-trend-range">时间</label><select id="dashboard-trend-range" class="form-select" aria-label="选择趋势时间范围">
+            <option value="realtime">实时</option><option value="hour">1 小时</option><option value="6h">6 小时</option><option value="day">1 天</option><option value="7d">7 天</option><option value="month">本月</option><option value="custom">自定义</option>
+          </select></div>
+          <div class="dashboard-trend-custom" id="dashboard-trend-custom" hidden>
+            <label>开始时间<input type="datetime-local" id="dashboard-trend-start" class="form-input" step="60" aria-label="趋势开始时间"></label>
+            <span class="dashboard-trend-custom-separator" aria-hidden="true">至</span>
+            <label>结束时间<input type="datetime-local" id="dashboard-trend-end" class="form-input" step="60" aria-label="趋势结束时间"></label>
+            <button type="button" class="btn btn-primary dashboard-trend-apply" id="dashboard-trend-apply">应用</button>
+          </div>
+        </div>
+        <div class="dashboard-trend-custom-error" id="dashboard-trend-custom-error" role="alert" aria-live="polite" hidden></div>
       </div>
-      <div style="overflow-x:auto">
-        <table>
-          <thead><tr>
-            <th>站点</th><th>状态</th><th>回源地址</th><th>UA 模式</th><th>入口</th><th>实时网速</th><th>已用流量</th><th>缓存大小</th>
-          </tr></thead>
-          <tbody id="dash-table"></tbody>
-        </table>
+      <div class="dashboard-trend-grid">
+        <section class="dashboard-trend-card" data-dashboard-chart="speed"><div class="glass-card-header"><div><div class="glass-card-title">速度</div><span class="dashboard-trend-unit">时间范围峰值</span></div><strong class="dashboard-trend-summary" id="dashboard-speed-summary">—</strong></div><div class="dashboard-trend-wrap"><canvas id="dashboardSpeedTrend" aria-label="速度趋势图"></canvas><div class="dashboard-chart-tooltip" hidden></div></div><div class="dashboard-trend-legend"><span><i class="download"></i>下载</span><span><i class="upload"></i>上传</span></div></section>
+        <section class="dashboard-trend-card" data-dashboard-chart="requests"><div class="glass-card-header"><div><div class="glass-card-title">请求</div><span class="dashboard-trend-unit">时间范围总数</span></div><strong class="dashboard-trend-summary" id="dashboard-requests-summary">—</strong></div><div class="dashboard-trend-wrap"><canvas id="dashboardRequestsTrend" aria-label="请求趋势图"></canvas><div class="dashboard-chart-tooltip" hidden></div></div><div class="dashboard-trend-legend"><span><i class="requests"></i>请求次数</span></div></section>
+        <section class="dashboard-trend-card" data-dashboard-chart="traffic"><div class="glass-card-header"><div><div class="glass-card-title">流量</div><span class="dashboard-trend-unit" id="dashboard-traffic-unit">计费流量总数</span></div><strong class="dashboard-trend-summary" id="dashboard-traffic-summary">—</strong></div><div class="dashboard-trend-wrap"><canvas id="dashboardTrafficTrend" aria-label="流量趋势图"></canvas><div class="dashboard-chart-tooltip" hidden></div></div><div class="dashboard-trend-legend"><span><i class="traffic"></i>计费流量</span></div></section>
       </div>
-    </div>
-  `;
+      <div class="dashboard-insights-grid">
+        <section class="dashboard-insight-card" id="dashboard-log-health"><div class="dashboard-insight-head"><h2>日志写入</h2><span class="dashboard-health-dot"></span></div><p>正在读取…</p></section>
+        <section class="dashboard-insight-card" id="dashboard-schedule-health"><div class="dashboard-insight-head"><h2>定时任务</h2><span class="dashboard-health-dot"></span></div><p>正在读取…</p></section>
+      </div>
+      <div class="glass-card dashboard-site-status">
+        <div class="glass-card-header">
+          <div class="glass-card-title"><span class="live-dot"></span>站点实时状态</div>
+          <div class="glass-card-title" style="font-size:.72rem;color:var(--white-38)" id="s-requests">0 请求</div>
+        </div>
+        <div style="overflow-x:auto">
+          <table>
+            <thead><tr>
+              <th>站点</th><th>状态</th><th>回源地址</th><th>UA 模式</th><th>入口</th><th>实时网速</th><th>已用流量</th><th>缓存大小</th>
+            </tr></thead>
+            <tbody id="dash-table"></tbody>
+          </table>
+        </div>
+      </div>
+    `;
+
+    setupDashboardTrendControls();
+    observeDashboardTrendResize();
+  }
 
   startDashSSE();
-  setupDashboardTrendControls();
-  observeDashboardTrendResize();
   loadDashboardTable();
   loadDashboardInsights();
   loadDashboardTrends();

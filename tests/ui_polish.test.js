@@ -87,3 +87,54 @@ test('site editor latency colors survive the modal value override', () => {
   assert.match(cssSource, /\.site-config-modal \.upstream-line-latency\.warn \{ color: var\(--orange\); \}/);
   assert.match(cssSource, /\.site-config-modal \.upstream-line-latency\.bad \{ color: var\(--red\); \}/);
 });
+
+test('mobile drawer backdrop and header responsive structure are active', () => {
+  assert.match(indexSource, /class="sidebar-backdrop" id="sidebar-backdrop"/);
+  assert.match(cssSource, /\.sidebar-backdrop \{[\s\S]*?position: fixed;/);
+});
+
+test('site modal introduces tabbed panels to avoid infinite vertical scrolling', () => {
+  const sitesSource = fs.readFileSync(path.join(ROOT, 'web/static/js/pages/sites.js'), 'utf8');
+  assert.match(sitesSource, /class="site-modal-tabs"/);
+  assert.match(sitesSource, /id="site-panel-basic"/);
+  assert.match(sitesSource, /id="site-panel-lines"/);
+  assert.match(sitesSource, /id="site-panel-discovery"/);
+  assert.match(sitesSource, /id="site-panel-advanced"/);
+  assert.match(cssSource, /\.site-modal-tabs \{/);
+  assert.match(cssSource, /\.site-modal-tab\.active \{/);
+});
+
+test('backend logout invalidates active sessions in database', () => {
+  const httpSource = fs.readFileSync(path.join(ROOT, 'cmd/meridian/app_http.go'), 'utf8');
+  assert.match(httpSource, /func \(a \*App\) handleLogout/);
+  assert.match(httpSource, /a\.authenticatedSession\(r\)/);
+  assert.match(httpSource, /a\.db\.InvalidateAllSessions\(\)/);
+  assert.match(httpSource, /a\.clearSessionCookie\(w, r\)/);
+});
+
+test('site modal supports multiple playback origin nodes and dynamic stream hosts', () => {
+  const sitesSource = fs.readFileSync(path.join(ROOT, 'web/static/js/pages/sites.js'), 'utf8');
+  assert.match(sitesSource, /id="m-playback-target"/);
+  assert.match(sitesSource, /id="m-add-stream-host"/);
+  assert.match(sitesSource, /id="m-stream-hosts-list"/);
+  assert.match(sitesSource, /configuredStreamHosts/);
+  assert.match(sitesSource, /stream_hosts: configuredStreamHosts\.map/);
+});
+
+test('mobile settings constraints prevent horizontal overflow and format controls', () => {
+  assert.match(cssSource, /\.settings-layout \{[\s\S]*?width: 100% !important;/);
+  assert.match(cssSource, /\.settings-grid,[\s\S]*?\.settings-two-column,[\s\S]*?\.settings-check-grid \{[\s\S]*?grid-template-columns: 1fr !important;/);
+  assert.match(cssSource, /\.settings-panel \{[\s\S]*?overflow-wrap: break-word !important;/);
+  assert.match(cssSource, /\.settings-choice button \{[\s\S]*?width: 100% !important;/);
+});
+
+test('zero-flicker page switching avoids blank screen opacity drops and preserves skeletons', () => {
+  const routerSource = fs.readFileSync(path.join(ROOT, 'web/static/js/router.js'), 'utf8');
+  const dashboardSource = fs.readFileSync(path.join(ROOT, 'web/static/js/pages/dashboard.js'), 'utf8');
+  const sitesSource = fs.readFileSync(path.join(ROOT, 'web/static/js/pages/sites.js'), 'utf8');
+  assert.doesNotMatch(routerSource, /target\.classList\.add\('active', 'page-entering'\)/);
+  assert.match(dashboardSource, /if \(!page\.querySelector\('#dash-stats'\)\)/);
+  assert.match(sitesSource, /if \(!page\.querySelector\('#sites-grid'\)\)/);
+});
+
+

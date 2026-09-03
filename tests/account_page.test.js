@@ -37,3 +37,10 @@ test('account page translates credential validation errors for the administrator
   assert.equal(sandbox.accountErrorMessage(new Error('current password is incorrect')), '当前密码不正确');
   assert.equal(sandbox.accountErrorMessage(new Error('password must be 12-72 bytes')), '新密码需要为 12–72 个字符');
 });
+
+test('account page provides secret toggle buttons for current and new passwords', () => {
+  assert.match(accountScript, /data-toggle-target="account-current-password"/);
+  assert.match(accountScript, /data-toggle-target="account-new-password"/);
+  assert.match(accountScript, /data-toggle-target="account-confirm-password"/);
+});
+

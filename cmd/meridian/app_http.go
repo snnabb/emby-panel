@@ -501,6 +501,13 @@ func (a *App) handleLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
+	if a != nil && a.db != nil {
+		if _, _, err := a.authenticatedSession(r); err == nil {
+			if err := a.db.InvalidateAllSessions(); err != nil {
+				log.Printf("failed to invalidate sessions on logout: %v", err)
+			}
+		}
+	}
 	a.clearSessionCookie(w, r)
 	a.jsonOK(w, map[string]bool{"logged_out": true})
 }

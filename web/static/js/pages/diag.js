@@ -64,8 +64,6 @@ async function runDiag() {
     const notes = [
       playbackNote(playback, primary),
       primaryProbeNote(primary),
-      '健康表示上游可达性与探针结果，不是完整业务可用性证明。',
-      'TLS 展示的是上游站点证书，不是 Meridian 自己监听端口的证书。',
     ].filter(Boolean);
 
     const cards = [
@@ -120,6 +118,7 @@ function renderFailoverCard(failovers, staggerClass) {
 }
 
 function renderDiagNotes(notes) {
+  if (!notes || !notes.length) return '';
   return `
     <div class="diag-card diag-card-wide fade-up stagger-2">
       <div class="diag-head">
