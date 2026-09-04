@@ -1387,27 +1387,30 @@ fi
 
 # Interactive menu installation accepts a custom panel port and keeps the
 # command-line/default behavior when the prompt is left blank.
-menu_custom_port=$(
-    REQUESTED_PORT=''
-    do_install() { printf 'PORT=%s\n' "$REQUESTED_PORT"; }
-    printf '1\n18090\n' | main_menu | tail -n 1
-)
+menu_input_file="${TEST_ROOT}/menu-input"
+menu_output_file="${TEST_ROOT}/menu-output"
+printf '1\n18090\n' > "$menu_input_file"
+REQUESTED_PORT=''
+do_install() { printf 'PORT=%s\n' "$REQUESTED_PORT" > "$menu_output_file"; }
+main_menu < "$menu_input_file" > /dev/null
+menu_custom_port=$(cat "$menu_output_file")
 assert_eq 'PORT=18090' "$menu_custom_port" 'interactive menu port'
-menu_default_port=$(
-    REQUESTED_PORT=''
-    do_install() { printf 'PORT=%s\n' "${REQUESTED_PORT:-<default>}"; }
-    printf '1\n\n' | main_menu | tail -n 1
-)
+printf '1\n\n' > "$menu_input_file"
+REQUESTED_PORT=''
+do_install() { printf 'PORT=%s\n' "${REQUESTED_PORT:-<default>}" > "$menu_output_file"; }
+main_menu < "$menu_input_file" > /dev/null
+menu_default_port=$(cat "$menu_output_file")
 assert_eq 'PORT=<default>' "$menu_default_port" 'interactive menu default port'
-menu_retry_port=$(
-    REQUESTED_PORT=''
-    do_install() { printf 'PORT=%s\n' "$REQUESTED_PORT"; }
-    printf '1\nnot-a-port\n19090\n' | main_menu | tail -n 1
-)
+printf '1\nnot-a-port\n19090\n' > "$menu_input_file"
+REQUESTED_PORT=''
+do_install() { printf 'PORT=%s\n' "$REQUESTED_PORT" > "$menu_output_file"; }
+main_menu < "$menu_input_file" > /dev/null
+menu_retry_port=$(cat "$menu_output_file")
 assert_eq 'PORT=19090' "$menu_retry_port" 'interactive menu invalid port retry'
 
 # CLI parsing accepts both normalized custom ports and the short alias while
 # rejecting malformed values and actions that cannot change the listener.
+REQUESTED_PORT=''
 parsed_port=$(
     do_install() { printf '%s\n' "$REQUESTED_PORT"; }
     run_cli install --port 00080
