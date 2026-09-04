@@ -46,7 +46,7 @@ test('upstream header rows do not inherit the browser fieldset frame', () => {
 });
 
 test('dashboard assets use a cache-busting revision after chart and mobile fixes', () => {
-  assert.match(indexSource, /(?:\?v=1\.12\.3|v1\.12\.3)/);
+  assert.match(indexSource, /(?:\?v=1\.12\.4|v1\.12\.4)/);
 });
 
 test('desktop sidebar uses the state variable for real width changes', () => {
