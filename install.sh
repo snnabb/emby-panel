@@ -163,7 +163,7 @@ valid_port() {
     [ -n "$normalized" ] || return 1
     case "${#normalized}" in
         1|2|3|4) return 0 ;;
-        5) [[ "$normalized" < "65536" ]] ;;
+        5) [ "$normalized" -le 65535 ] ;;
         *) return 1 ;;
     esac
 }

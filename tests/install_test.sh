@@ -354,7 +354,7 @@ assert_contains "$panel_port_after" 'proxy_pass http://127.0.0.1:18090;'
 assert_not_contains "$panel_port_after" 'proxy_pass http://127.0.0.1:9090;'
 assert_contains "$panel_port_after" 'listen 443 ssl; # managed by Certbot'
 assert_contains "$panel_port_after" 'ssl_certificate /etc/letsencrypt/live/panel.example.com/fullchain.pem; # managed by Certbot'
-assert_contains "$panel_port_after" 'return 301 https://$host$request_uri;'
+assert_contains "$panel_port_after" "return 301 https://\$host\$request_uri;"
 awk '!($0 ~ /^[[:space:]]*proxy_pass[[:space:]]+http:\/\/127\.0\.0\.1:[0-9]+;([[:space:]]*#.*)?[[:space:]]*$/)' \
     "$panel_port_before" > "${TEST_ROOT}/nginx-port-before-without-proxy"
 awk '!($0 ~ /^[[:space:]]*proxy_pass[[:space:]]+http:\/\/127\.0\.0\.1:[0-9]+;([[:space:]]*#.*)?[[:space:]]*$/)' \
@@ -722,7 +722,7 @@ fi
 assert_eq '20090' "$(read_env_value PORT)" 'systemd panel port switch'
 assert_contains "$NGINX_CONFIG" 'proxy_pass http://127.0.0.1:20090;'
 assert_contains "$NGINX_CONFIG" 'ssl_certificate /etc/letsencrypt/live/panel.example.com/fullchain.pem; # managed by Certbot'
-assert_contains "$NGINX_CONFIG" 'return 301 https://$host$request_uri;'
+assert_contains "$NGINX_CONFIG" "return 301 https://\$host\$request_uri;"
 assert_contains "$port_systemd_log" 'restart meridian'
 
 cp "${DATA_DIR}/.env" "${TEST_ROOT}/panel-port-rollback.env"
