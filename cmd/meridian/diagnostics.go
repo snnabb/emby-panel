@@ -50,10 +50,11 @@ type DiagProbe struct {
 }
 
 type DiagHealth struct {
-	Status    string    `json:"status"` // online, offline, error
+	Status    string    `json:"status"` // online, reachable, offline, error
 	EmbyVer   string    `json:"emby_version"`
 	LatencyMs int64     `json:"latency_ms"`
 	Probe     DiagProbe `json:"probe"`
+	Warning   string    `json:"warning,omitempty"`
 	Error     string    `json:"error,omitempty"`
 }
 
@@ -156,15 +157,16 @@ func healthProbeURLs(target *url.URL) []string {
 }
 
 func playbackProbeURLs(target *url.URL) []string {
-	return healthProbeURLs(target)
+	return buildProbeURLs(target, []string{""})
 }
 
 type diagProbePlan struct {
-	BaseURL       string
-	Kind          string
-	Method        string
-	CandidateURLs []string
-	ParseVersion  bool
+	BaseURL                    string
+	Kind                       string
+	Method                     string
+	CandidateURLs              []string
+	ParseVersion               bool
+	AllowedRedirectAuthorities []string
 }
 
 func resolveProbeKind(plan diagProbePlan, probeURL string) string {
@@ -222,21 +224,27 @@ func newProbeClient(timeout time.Duration) *http.Client {
 	return &http.Client{
 		Timeout:   timeout,
 		Transport: transport,
-		// Diagnostics must never become an internal scanner: a configured
-		// upstream that answers with a redirect is only allowed to point back
-		// at the same authority. Everything else stops the probe instead of
-		// following the hop into private or third-party ranges.
+		// Diagnostics must never become an internal scanner. The shared client
+		// only follows same-authority redirects; a probe plan can add an
+		// explicitly configured authority for a known site relationship.
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 3 {
-				return errors.New("diagnostic probe followed too many redirects")
-			}
-			previous := via[len(via)-1]
-			if !sameRedirectAuthority(previous.URL, req.URL) {
-				return errors.New("diagnostic probe redirect to a different host is not allowed")
-			}
-			return nil
+			return validateDiagnosticProbeRedirect(req, via, nil)
 		},
 	}
+}
+
+func validateDiagnosticProbeRedirect(req *http.Request, via []*http.Request, allowedAuthorities map[string]struct{}) error {
+	if len(via) >= 3 {
+		return errors.New("diagnostic probe followed too many redirects")
+	}
+	previous := via[len(via)-1]
+	if sameRedirectAuthority(previous.URL, req.URL) {
+		return nil
+	}
+	if _, ok := allowedAuthorities[redirectHostKey(req.URL)]; ok {
+		return nil
+	}
+	return errors.New("diagnostic probe redirect to a different host is not allowed")
 }
 
 var probeClient = newProbeClient(5 * time.Second)
@@ -260,9 +268,25 @@ func probeTargetHealth(plan diagProbePlan) DiagHealth {
 	probeClientMu.RLock()
 	client := probeClient
 	probeClientMu.RUnlock()
+	if len(plan.AllowedRedirectAuthorities) > 0 {
+		allowedAuthorities := make(map[string]struct{}, len(plan.AllowedRedirectAuthorities))
+		for _, authority := range plan.AllowedRedirectAuthorities {
+			if authority != "" {
+				allowedAuthorities[authority] = struct{}{}
+			}
+		}
+		if len(allowedAuthorities) > 0 {
+			clientCopy := *client
+			clientCopy.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+				return validateDiagnosticProbeRedirect(req, via, allowedAuthorities)
+			}
+			client = &clientCopy
+		}
+	}
 	var bestReachable DiagHealth
 	bestReachableRank := 0
 	var serverError DiagHealth
+	var playbackReachableWarning DiagHealth
 
 	for _, probeURL := range plan.CandidateURLs {
 		health := DiagHealth{
@@ -297,6 +321,15 @@ func probeTargetHealth(plan diagProbePlan) DiagHealth {
 		resp.Body.Close()
 		health.Probe.HTTPStatus = resp.StatusCode
 
+		if plan.Kind == "playback_reachability" && (resp.StatusCode < 200 || resp.StatusCode >= 300) {
+			health.Status = "reachable"
+			health.Warning = fmt.Sprintf("播放回源基址返回 HTTP %d；地址已响应，但该探针不验证具体媒体流", resp.StatusCode)
+			if playbackReachableWarning.Warning == "" {
+				playbackReachableWarning = health
+			}
+			continue
+		}
+
 		if resp.StatusCode >= 500 {
 			if serverError.Error == "" {
 				health.Status = "error"
@@ -324,9 +357,6 @@ func probeTargetHealth(plan diagProbePlan) DiagHealth {
 			bestReachable = health
 			bestReachableRank = rank
 		}
-		if plan.Kind == "playback_path" && rank >= 3 {
-			return health
-		}
 	}
 
 	if bestReachableRank > 0 {
@@ -334,6 +364,9 @@ func probeTargetHealth(plan diagProbePlan) DiagHealth {
 	}
 	if serverError.Error != "" {
 		return serverError
+	}
+	if playbackReachableWarning.Warning != "" {
+		return playbackReachableWarning
 	}
 	return DiagHealth{
 		Status: "offline",
@@ -367,24 +400,25 @@ func probeSiteHealth(targetURL string) DiagHealth {
 	})
 }
 
-func probePlaybackHealth(targetURL string) DiagHealth {
+func probePlaybackHealth(targetURL string, allowedRedirectAuthorities []string) DiagHealth {
 	target, err := normalizeTargetURL(targetURL)
 	if err != nil {
 		return DiagHealth{
 			Status: "offline",
 			Probe: DiagProbe{
-				Kind:   "metadata_api",
+				Kind:   "playback_reachability",
 				Method: http.MethodGet,
 			},
 			Error: err.Error(),
 		}
 	}
 	return probeTargetHealth(diagProbePlan{
-		BaseURL:       target.String(),
-		Kind:          "metadata_api",
-		Method:        http.MethodGet,
-		CandidateURLs: playbackProbeURLs(target),
-		ParseVersion:  true,
+		BaseURL:                    target.String(),
+		Kind:                       "playback_reachability",
+		Method:                     http.MethodGet,
+		CandidateURLs:              playbackProbeURLs(target),
+		ParseVersion:               false,
+		AllowedRedirectAuthorities: allowedRedirectAuthorities,
 	})
 }
 
@@ -434,7 +468,7 @@ func secureTLSConfig(serverName string) *tls.Config {
 	}
 }
 
-func diagnoseUpstreamTarget(targetURL, probeKind string) (DiagUpstream, string) {
+func diagnoseUpstreamTarget(targetURL, probeKind string, allowedRedirectAuthorities ...string) (DiagUpstream, string) {
 	trimmed := strings.TrimSpace(targetURL)
 	result := DiagUpstream{
 		Configured:    trimmed != "",
@@ -453,7 +487,7 @@ func diagnoseUpstreamTarget(targetURL, probeKind string) (DiagUpstream, string) 
 	result.EffectiveURL = displayTargetURL(parsed.String())
 	switch probeKind {
 	case "playback_path":
-		result.Health = probePlaybackHealth(parsed.String())
+		result.Health = probePlaybackHealth(parsed.String(), allowedRedirectAuthorities)
 	default:
 		result.Health = probeSiteHealth(parsed.String())
 	}
@@ -479,6 +513,10 @@ func displayTargetURL(raw string) string {
 
 func diagnoseSite(site *Site, pm *ProxyManager) DiagResult {
 	policy, profileErr := resolveUAHeaderPolicy(*site)
+	primaryRedirectAuthority := ""
+	if primaryTarget, err := normalizeTargetURL(site.TargetURL); err == nil {
+		primaryRedirectAuthority = redirectHostKey(primaryTarget)
+	}
 	primary, primaryKey := diagnoseUpstreamTarget(site.TargetURL, "metadata_api")
 	primary.Configured = true
 	failovers := make([]DiagUpstream, 0, len(site.FailoverTargetList))
@@ -527,7 +565,7 @@ func diagnoseSite(site *Site, pm *ProxyManager) DiagResult {
 		}
 	} else if playbackRaw != "" {
 		var playbackKey string
-		playback, playbackKey = diagnoseUpstreamTarget(playbackRaw, "playback_path")
+		playback, playbackKey = diagnoseUpstreamTarget(playbackRaw, "playback_path", primaryRedirectAuthority)
 		playback.Configured = true
 		playback.UsingFallback = false
 		playback.SameAsPrimary = playbackKey != "" && playbackKey == primaryKey

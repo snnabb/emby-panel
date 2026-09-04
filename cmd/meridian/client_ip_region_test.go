@@ -55,3 +55,42 @@ func TestClientIPRegionResolverFetchesAndCaches(t *testing.T) {
 	}
 	t.Fatalf("region lookup did not complete; requests=%d", requests.Load())
 }
+
+func TestClientIPRegionResolverDefaultsToIPSB(t *testing.T) {
+	resolver, err := newClientIPRegionResolver("", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolver == nil {
+		t.Fatal("default resolver is nil")
+	}
+	if resolver.endpoint != defaultClientIPRegionEndpoint {
+		t.Fatalf("endpoint=%q, want %q", resolver.endpoint, defaultClientIPRegionEndpoint)
+	}
+}
+
+func TestClientIPRegionResolverAcceptsIPSBResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/8.8.8.8" {
+			t.Errorf("path=%q", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"country":"United States","region":"California","city":"Mountain View","country_code":"US"}`)
+	}))
+	defer server.Close()
+	resolver, err := newClientIPRegionResolver(server.URL+"/{ip}", server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := resolver.lookup("8.8.8.8"); got != clientIPRegionPending {
+		t.Fatalf("first lookup=%q", got)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if got := resolver.lookup("8.8.8.8"); got == "United States · California · Mountain View" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("IP.SB-style region lookup did not complete")
+}

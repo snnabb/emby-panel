@@ -107,7 +107,7 @@ function renderAccount() {
       </section>
 
       <section class="account-session-card">
-        <div><h2>安全退出登录</h2><p>退出登录将清除当前设备 Cookie，并在服务端作废所有设备的登录会话。</p></div>
+        <div><h2>安全退出登录</h2><p>退出登录将清除当前设备 Cookie，其他设备的登录会话不受影响。</p></div>
         <button class="account-logout-button" id="account-logout" type="button">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 17l5-5-5-5M15 12H3M15 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4"/></svg>
           <span>退出登录</span>

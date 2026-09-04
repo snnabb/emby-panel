@@ -2,6 +2,7 @@ let dashSSE = null;
 let dashAbortController = null;
 let dashRetryTimer = null;
 let dashboardTrendResizeObserver = null;
+let dashboardTrendControlsCleanup = null;
 let dashboardTrendState = { siteId: 'all', range: 'realtime', customStart: '', customEnd: '' };
 let dashboardTrendCharts = new Map();
 let dashboardTrendData = null;
@@ -102,9 +103,9 @@ function renderDashboard() {
     `;
   }
 
+  startDashSSE();
   setupDashboardTrendControls();
   observeDashboardTrendResize();
-  startDashSSE();
   loadDashboardTable();
   loadDashboardInsights();
   loadDashboardTrends();
@@ -525,9 +526,11 @@ function dashboardReadCustomRange() {
 }
 
 function setupDashboardTrendControls() {
+  if (typeof dashboardTrendControlsCleanup === 'function') dashboardTrendControlsCleanup();
   const siteSelect = document.getElementById('dashboard-trend-site');
   const rangeSelect = document.getElementById('dashboard-trend-range');
   if (!siteSelect || !rangeSelect) return;
+  const cleanupHandlers = [];
   siteSelect.onchange = () => { dashboardTrendState.siteId = siteSelect.value; loadDashboardTrends(); };
   const startInput = document.getElementById('dashboard-trend-start');
   const endInput = document.getElementById('dashboard-trend-end');
@@ -569,13 +572,14 @@ function setupDashboardTrendControls() {
     const canvas = document.getElementById(metric === 'speed' ? 'dashboardSpeedTrend' : metric === 'requests' ? 'dashboardRequestsTrend' : 'dashboardTrafficTrend');
     if (!canvas) return;
     const tooltip = canvas.parentElement.querySelector('.dashboard-chart-tooltip');
-    const chart = { canvas, tooltip, hoverIndex: -1, hoverX: null, hoverY: null, pointerActive: false, geometry: null };
+    const chart = { canvas, tooltip, hoverIndex: -1, hoverX: null, hoverY: null, pointerActive: false, pointerId: null, geometry: null };
     dashboardTrendCharts.set(metric, chart);
     const clearHover = () => {
       chart.pointerActive = false;
       chart.hoverIndex = -1;
       chart.hoverX = null;
       chart.hoverY = null;
+      chart.pointerId = null;
       if (tooltip) tooltip.hidden = true;
       drawDashboardTrendChart(metric);
     };
@@ -615,24 +619,48 @@ function setupDashboardTrendControls() {
       }
       drawDashboardTrendChart(metric);
     };
-    canvas.addEventListener('pointerdown', event => {
+    const handlePointerDown = event => {
       chart.pointerActive = true;
+      chart.pointerId = event.pointerId;
       if (canvas.setPointerCapture) canvas.setPointerCapture(event.pointerId);
       updateHover(event);
-    });
-    canvas.addEventListener('pointermove', event => {
+    };
+    const handlePointerMove = event => {
       if (event.pointerType === 'mouse' || chart.pointerActive) updateHover(event);
-    });
-    canvas.addEventListener('pointerup', event => {
+    };
+    const handlePointerUp = event => {
       if (canvas.releasePointerCapture && canvas.hasPointerCapture?.(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
       clearHover();
-    });
-    canvas.addEventListener('pointercancel', clearHover);
-    canvas.addEventListener('pointerleave', event => {
+    };
+    const handlePointerCancel = () => clearHover();
+    const handlePointerLeave = event => {
       if (event.pointerType !== 'mouse') return;
       clearHover();
+    };
+    canvas.addEventListener('pointerdown', handlePointerDown);
+    canvas.addEventListener('pointermove', handlePointerMove);
+    canvas.addEventListener('pointerup', handlePointerUp);
+    canvas.addEventListener('pointercancel', handlePointerCancel);
+    canvas.addEventListener('pointerleave', handlePointerLeave);
+    cleanupHandlers.push(() => {
+      canvas.removeEventListener('pointerdown', handlePointerDown);
+      canvas.removeEventListener('pointermove', handlePointerMove);
+      canvas.removeEventListener('pointerup', handlePointerUp);
+      canvas.removeEventListener('pointercancel', handlePointerCancel);
+      canvas.removeEventListener('pointerleave', handlePointerLeave);
+      if (chart.pointerActive && chart.pointerId !== null && canvas.releasePointerCapture && canvas.hasPointerCapture?.(chart.pointerId)) {
+        try { canvas.releasePointerCapture(chart.pointerId); } catch (_) {}
+      }
+      chart.pointerActive = false;
+      chart.pointerId = null;
+      if (tooltip) tooltip.hidden = true;
     });
   });
+  dashboardTrendControlsCleanup = () => {
+    cleanupHandlers.splice(0).forEach(cleanup => cleanup());
+    dashboardTrendCharts = new Map();
+    dashboardTrendControlsCleanup = null;
+  };
 }
 
 async function loadDashboardTrends() {
@@ -928,6 +956,7 @@ function animateValue(id, newVal) {
 }
 
 function stopDashSSE() {
+  if (typeof dashboardTrendControlsCleanup === 'function') dashboardTrendControlsCleanup();
   dashboardSpeedSamples = new Map();
   dashboardLiveSpeeds = new Map();
   dashboardRealtimeTrendSamples = new Map();

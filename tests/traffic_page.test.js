@@ -514,7 +514,7 @@ test('dashboard trends use pointer interaction and dashed crosshairs', () => {
   assert.match(source, /addEventListener\('pointermove'/);
   assert.match(source, /addEventListener\('pointerup'/);
   assert.match(source, /const clearHover = \(\) =>/);
-  assert.match(source, /pointercancel', clearHover/);
+  assert.match(source, /addEventListener\('pointercancel', (?:clearHover|handlePointerCancel)/);
   assert.match(source, /setLineDash\(\[5, 4\]\)/);
   assert.match(source, /const ticks = 6/);
   assert.match(source, /dashboardRoundRect/);
@@ -556,7 +556,7 @@ test('dashboard trend touch pointers outside the canvas are treated as inactive'
   assert.equal(vm.runInContext('dashboardTrendPointerInside({ left: 100, top: 50, width: 300, height: 200 }, { clientX: 399, clientY: 249 })', sandbox), true);
   const source = readScript('pages/dashboard.js');
   assert.match(source, /event\.pointerType !== 'mouse' && !dashboardTrendPointerInside\(rect, event\)/);
-  assert.match(source, /canvas\.addEventListener\('pointerup',[\s\S]*?clearHover\(\);[\s\S]*?\}\);/);
+  assert.match(source, /const handlePointerUp = [\s\S]*?clearHover\(\);/);
   assert.match(source, /Touch pointer capture continues delivering pointermove events/);
 });
 

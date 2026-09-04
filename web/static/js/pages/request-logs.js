@@ -8,7 +8,6 @@ let requestLogReloadQueued = false;
 let currentRenderedLogs = [];
 let requestLogUserInteracting = false;
 let requestLogDisplaySettings = { node: true, category: true, status: true, client_ip: true, ua: true, upstream_ua: true, backend_address: true, timeline: true };
-const requestLogUAWidthStorageKey = 'meridian-request-log-ua-width';
 
 function requestLogDateOnlyValue(value) {
   if (typeof meridianDateOnlyValue === 'function') return meridianDateOnlyValue(value);
@@ -31,39 +30,6 @@ function requestLogFormatDateTime(timestamp) {
 function requestLogFormatDate(timestamp) {
   if (typeof meridianFormatDate === 'function') return meridianFormatDate(timestamp);
   return new Date(Number(timestamp)).toLocaleDateString('zh-CN');
-}
-
-function requestLogNormalizeUAWidth(value) {
-  return Math.max(180, Math.min(420, Number(value) || 240));
-}
-
-function requestLogGetUAWidth() {
-  try {
-    return requestLogNormalizeUAWidth(window.localStorage.getItem(requestLogUAWidthStorageKey));
-  } catch (_) {
-    return 240;
-  }
-}
-
-function requestLogSetUAWidth(value) {
-  const width = requestLogNormalizeUAWidth(value);
-  const cssWidth = `${width}px`;
-  if (document.documentElement?.style?.setProperty) {
-    document.documentElement.style.setProperty('--request-log-ua-width', cssWidth);
-  }
-  const table = document.querySelector?.('.request-log-table');
-  if (table?.style?.setProperty) table.style.setProperty('--request-log-ua-width', cssWidth);
-  document.querySelectorAll?.('col.request-log-col-ua, col.request-log-col-upstream-ua, th[data-log-field="ua"], th[data-log-field="upstream-ua"]').forEach(node => {
-    node.style?.setProperty('width', cssWidth, 'important');
-  });
-  try {
-    window.localStorage.setItem(requestLogUAWidthStorageKey, String(width));
-  } catch (_) {}
-  return width;
-}
-
-function requestLogApplyUAWidth() {
-  return requestLogSetUAWidth(requestLogGetUAWidth());
 }
 
 function requestLogApplyDisplaySettings(settings) {
@@ -141,7 +107,7 @@ function requestLogStatusClass(status) {
 
 function renderRequestLogs() {
   const page = document.getElementById('page-request-logs');
-  requestLogApplyUAWidth();
+  requestLogUserInteracting = false;
   const today = Date.now();
   const yesterday = today - 24 * 60 * 60 * 1000;
   requestLogCategoryFilter = 'all';
@@ -194,12 +160,6 @@ function renderRequestLogs() {
         </select>
       </div>
 
-      <div class="request-log-ua-width-control">
-        <label for="request-log-ua-width">UA 列宽</label>
-        <input type="range" id="request-log-ua-width" min="180" max="420" step="10" value="${requestLogGetUAWidth()}">
-        <output id="request-log-ua-width-value">${requestLogGetUAWidth()} px</output>
-      </div>
-
       <div class="request-log-actions">
         <button type="button" class="request-log-action danger" id="request-cache-clear">
           <svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/><line x1="9" y1="10" x2="15" y2="16"/><line x1="15" y1="10" x2="9" y2="16"/></svg>
@@ -234,7 +194,6 @@ function renderRequestLogs() {
       </div>
     </section>
   `;
-  requestLogApplyUAWidth();
 
   const categorySelect = document.getElementById('request-log-category');
   if (categorySelect) categorySelect.onchange = event => {
@@ -255,17 +214,6 @@ function renderRequestLogs() {
   document.getElementById('request-log-refresh').onclick = loadRequestLogs;
   document.getElementById('request-log-clear').onclick = clearRequestLogs;
   document.getElementById('request-cache-clear').onclick = clearAssetCache;
-  const uaWidthInput = document.getElementById('request-log-ua-width');
-  if (uaWidthInput) {
-    const applyUAWidth = () => {
-      const width = requestLogSetUAWidth(uaWidthInput.value);
-      uaWidthInput.value = String(width);
-      const output = document.getElementById('request-log-ua-width-value');
-      if (output) output.textContent = `${width} px`;
-    };
-    uaWidthInput.oninput = applyUAWidth;
-    uaWidthInput.onchange = applyUAWidth;
-  }
   if (API.getSystemSettings) API.getSystemSettings().then(settings => {
     if (typeof meridianSetTimezoneName === 'function' && settings?.schedule_timezone) meridianSetTimezoneName(settings.schedule_timezone);
     if (typeof meridianSetTimezoneOffset === 'function') meridianSetTimezoneOffset(settings?.schedule_timezone_offset);
@@ -342,6 +290,7 @@ function stopRequestLogRefresh() {
     requestLogSearchTimer = null;
   }
   requestLogReloadQueued = false;
+  requestLogUserInteracting = false;
 }
 
 function setRequestLogActivePill(containerId, activeButton) {

@@ -104,11 +104,10 @@ test('site modal introduces tabbed panels to avoid infinite vertical scrolling',
   assert.match(cssSource, /\.site-modal-tab\.active \{/);
 });
 
-test('backend logout invalidates active sessions in database', () => {
+test('backend logout only clears the current device session cookie', () => {
   const httpSource = fs.readFileSync(path.join(ROOT, 'cmd/meridian/app_http.go'), 'utf8');
   assert.match(httpSource, /func \(a \*App\) handleLogout/);
-  assert.match(httpSource, /a\.authenticatedSession\(r\)/);
-  assert.match(httpSource, /a\.db\.InvalidateAllSessions\(\)/);
+  assert.doesNotMatch(httpSource, /func \(a \*App\) handleLogout[\s\S]*InvalidateAllSessions/);
   assert.match(httpSource, /a\.clearSessionCookie\(w, r\)/);
 });
 
@@ -118,7 +117,7 @@ test('site modal supports multiple playback origin nodes and dynamic stream host
   assert.match(sitesSource, /id="m-add-stream-host"/);
   assert.match(sitesSource, /id="m-stream-hosts-list"/);
   assert.match(sitesSource, /configuredStreamHosts/);
-  assert.match(sitesSource, /stream_hosts: configuredStreamHosts\.map/);
+  assert.match(sitesSource, /stream_hosts: streamHostValues/);
 });
 
 test('mobile settings constraints prevent horizontal overflow and format controls', () => {
@@ -137,9 +136,15 @@ test('zero-flicker page switching avoids blank screen opacity drops and preserve
   assert.match(sitesSource, /if \(!page\.querySelector\('#sites-grid'\)\)/);
 });
 
-test('account session card explicitly informs that all devices are invalidated on logout', () => {
+test('account session card accurately describes current-device logout', () => {
   const accountSource = fs.readFileSync(path.join(ROOT, 'web/static/js/pages/account.js'), 'utf8');
-  assert.match(accountSource, /作废所有设备的登录会话/);
+  assert.match(accountSource, /清除当前设备 Cookie，其他设备的登录会话不受影响/);
+  assert.doesNotMatch(accountSource, /作废所有设备的登录会话/);
+});
+
+test('major cards honor the configurable UI radius', () => {
+  assert.match(cssSource, /\.glass-card,[\s\S]*?border-radius: var\(--ui-radius\) !important;/);
+  assert.doesNotMatch(cssSource, /\.glass-card,[\s\S]*?border-radius: 18px !important;/);
 });
 
 test('request log detail avoids raw data-copy attribute in innerHTML and pauses auto-refresh when expanded', () => {

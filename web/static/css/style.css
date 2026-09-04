@@ -4450,35 +4450,6 @@ html {
   font-size: 12px;
 }
 
-.request-log-ua-width-control {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  max-width: 380px;
-  margin-top: 14px;
-  color: var(--white-60);
-  font-size: 13px;
-}
-
-.request-log-ua-width-control label {
-  flex: 0 0 84px;
-}
-
-.request-log-ua-width-control input[type="range"] {
-  flex: 1 1 220px;
-  width: 220px;
-  max-width: 220px;
-  min-width: 140px;
-  accent-color: var(--blue);
-}
-
-.request-log-ua-width-control output {
-  min-width: 58px;
-  color: var(--white-87);
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-
 .request-log-list-card {
   min-width: 0;
 }
@@ -5264,31 +5235,43 @@ html { font-size: 15px; }
 
 .request-log-table-card { width: 100%; min-width: 0; }
 .request-log-table-scroll { width: 100%; min-width: 0; overflow-x: auto; }
-.request-log-table { width: 100%; min-width: calc(840px + var(--request-log-ua-width, 240px) + var(--request-log-ua-width, 240px)); table-layout: fixed; }
+.request-log-table { width: 1452px; min-width: 1452px; table-layout: fixed; }
 .request-log-table th,
 .request-log-table td { padding: 12px 14px; vertical-align: middle; }
 .request-log-table th { font-size: 13px; }
-.request-log-table col.request-log-col-node { width: 15%; }
-.request-log-table col.request-log-col-category { width: 12%; }
-.request-log-table col.request-log-col-status { width: 8%; }
-.request-log-table col.request-log-col-ip { width: 25%; }
-.request-log-table col.request-log-col-ua { width: var(--request-log-ua-width, 240px); }
-.request-log-table col.request-log-col-upstream-ua { width: var(--request-log-ua-width, 240px); }
+.request-log-table col.request-log-col-node { width: 120px; }
+.request-log-table col.request-log-col-category { width: 130px; }
+.request-log-table col.request-log-col-status { width: 70px; }
+.request-log-table col.request-log-col-ip { width: 350px; }
+.request-log-table col.request-log-col-ua { width: 220px; }
+.request-log-table col.request-log-col-upstream-ua { width: 220px; }
 .request-log-table col.request-log-col-backend { width: 210px; }
 .request-log-table col.request-log-col-time { width: 132px; }
-.request-log-table th:nth-child(1) { width: 15% !important; }
-.request-log-table th:nth-child(2) { width: 12% !important; }
-.request-log-table th:nth-child(3) { width: 8% !important; }
-.request-log-table th:nth-child(4) { width: 25% !important; }
-.request-log-table th:nth-child(5) { width: var(--request-log-ua-width, 240px) !important; }
-.request-log-table th:nth-child(6) { width: var(--request-log-ua-width, 240px) !important; }
+.request-log-table th:nth-child(1) { width: 120px !important; }
+.request-log-table th:nth-child(2) { width: 130px !important; }
+.request-log-table th:nth-child(3) { width: 70px !important; }
+.request-log-table th:nth-child(4) { width: 350px !important; }
+.request-log-table th:nth-child(5) { width: 220px !important; }
+.request-log-table th:nth-child(6) { width: 220px !important; }
 .request-log-table th:nth-child(7) { width: 210px !important; }
 .request-log-table th:nth-child(8) { width: 132px !important; }
 .request-log-table th[data-log-field="timeline"],
 .request-log-table td[data-log-field="timeline"] { text-align: right; }
 .request-log-ip { white-space: normal; overflow-wrap: anywhere; line-height: 1.35; }
 .request-log-region { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
-.request-log-ua { white-space: normal; overflow-wrap: anywhere; line-height: 1.35; }
+.request-log-ua {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.35;
+}
+.request-log-table td[data-log-field="ua"],
+.request-log-table td[data-log-field="upstream-ua"] {
+  overflow: visible;
+  vertical-align: top;
+}
 .request-log-backend { white-space: normal; overflow-wrap: anywhere; line-height: 1.35; }
 .request-log-time { display: block; overflow: hidden; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -5315,7 +5298,7 @@ html { font-size: 15px; }
   .settings-section-nav { gap: 4px; padding: 9px; }
   .settings-nav-item { min-height: 34px; padding-block: 4px; }
   .settings-panel, .telegram-report-card, .settings-content .diag-card { padding: 12px; }
-  .request-log-table { min-width: calc(580px + var(--request-log-ua-width, 240px) + var(--request-log-ua-width, 240px)); }
+  .request-log-table { min-width: 1284px; }
   .request-log-table th, .request-log-table td { padding: 10px 11px; }
 }
 
@@ -5386,8 +5369,8 @@ html { font-size: 15px; }
 
   /* Keep the mobile log table dense enough to scan several requests at once. */
   .request-log-table {
-    width: calc(844px + var(--request-log-ua-width, 240px) + var(--request-log-ua-width, 240px));
-    min-width: calc(844px + var(--request-log-ua-width, 240px) + var(--request-log-ua-width, 240px));
+    width: 1284px;
+    min-width: 1284px;
   }
   .request-log-table col.request-log-col-node,
   .request-log-table th:nth-child(1) { width: 112px !important; }
@@ -5398,14 +5381,13 @@ html { font-size: 15px; }
   .request-log-table col.request-log-col-ip,
   .request-log-table th:nth-child(4) { width: 170px !important; }
   .request-log-table col.request-log-col-ua,
-  .request-log-table th:nth-child(5) { width: var(--request-log-ua-width, 240px) !important; }
+  .request-log-table th:nth-child(5) { width: 220px !important; }
   .request-log-table col.request-log-col-upstream-ua,
-  .request-log-table th:nth-child(6) { width: var(--request-log-ua-width, 240px) !important; }
+  .request-log-table th:nth-child(6) { width: 220px !important; }
   .request-log-table col.request-log-col-backend,
   .request-log-table th:nth-child(7) { width: 220px !important; }
   .request-log-table col.request-log-col-time,
   .request-log-table th:nth-child(8) { width: 122px !important; }
-  .request-log-table tbody tr { height: 58px; }
   .request-log-table th,
   .request-log-table td {
     overflow: hidden;
@@ -6645,7 +6627,7 @@ body {
   -webkit-backdrop-filter: blur(36px) saturate(190%) !important;
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
   box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.08), 0 14px 40px rgba(0, 0, 0, 0.45) !important;
-  border-radius: 18px !important;
+  border-radius: var(--ui-radius) !important;
 }
 
 /* /* Apple TV Segmented Pill Tabs */

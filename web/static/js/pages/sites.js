@@ -37,8 +37,10 @@ async function loadSites() {
     document.getElementById('sites-count').innerHTML = `共 <strong>${sites.length}</strong> 个站点`;
 
     const grid = document.getElementById('sites-grid');
+    const searchQuery = document.getElementById('sites-search')?.value || '';
     if (!sites || sites.length === 0) {
       grid.innerHTML = '<div style="text-align:center;color:var(--white-38);padding:60px;grid-column:1/-1">暂无站点，点击右上角添加</div>';
+      filterSiteCards(searchQuery);
       return;
     }
 
@@ -121,6 +123,7 @@ async function loadSites() {
       });
     });
     setupSiteSorting(grid);
+    filterSiteCards(searchQuery);
   } catch (e) {
     Toast.error('加载站点失败: ' + e.message);
   }
@@ -929,8 +932,15 @@ function renderDynamicObservationsPanel(supported) {
 	`;
 }
 
-function canAddPlaybackAddress(currentCount, maxPlaybackAddresses) {
-	return currentCount < maxPlaybackAddresses;
+function playbackAddressCount(playbackTargetURL, streamHosts) {
+	return normalizeStreamHosts(streamHosts).length + (String(playbackTargetURL || '').trim() ? 1 : 0);
+}
+
+function canAddPlaybackAddress(currentStreamHostCount, maxPlaybackAddresses, hasPlaybackTarget = false) {
+	const current = Number(currentStreamHostCount);
+	const maximum = Number(maxPlaybackAddresses);
+	if (!Number.isFinite(current) || !Number.isFinite(maximum) || current < 0 || maximum < 1) return false;
+	return current + (hasPlaybackTarget ? 1 : 0) < maximum;
 }
 
 function renderUpstreamHeaderRows(headers, upstreamHeadersAvailable) {
@@ -1859,6 +1869,7 @@ async function showSiteModal(site) {
   };
 
   let configuredStreamHosts = isEdit ? normalizeStreamHosts(site.stream_hosts) : [];
+  const playbackTargetInput = document.getElementById('m-playback-target');
   function renderStreamHostRows() {
     const container = document.getElementById('m-stream-hosts-list');
     if (!container) return;
@@ -1891,7 +1902,8 @@ async function showSiteModal(site) {
   if (addStreamHostButton) {
     addStreamHostButton.onclick = () => {
       const maxLimit = siteCapabilities && siteCapabilities.max_playback_addresses ? siteCapabilities.max_playback_addresses : 128;
-      if (!canAddPlaybackAddress(configuredStreamHosts.length, maxLimit)) {
+      const hasPlaybackTarget = Boolean(playbackTargetInput && playbackTargetInput.value.trim());
+      if (!canAddPlaybackAddress(configuredStreamHosts.length, maxLimit, hasPlaybackTarget)) {
         Toast.error('已达到最大播放节点数量上限');
         return;
       }
@@ -1919,12 +1931,20 @@ async function showSiteModal(site) {
 		  siteCapabilities.route_domain,
 		  pathPrefixInput.value,
 		);
-			const primaryTargetURL = joinUpstreamTargetAddress(
+				const primaryTargetURL = joinUpstreamTargetAddress(
 				document.getElementById('m-target-scheme').value,
 				document.getElementById('m-target-address').value,
 				document.getElementById('m-target-port').value,
-			);
-			const playbackTargetURL = document.getElementById('m-playback-target').value.trim();
+				);
+				const playbackTargetURL = playbackTargetInput ? playbackTargetInput.value.trim() : '';
+				const streamHostValues = normalizeStreamHosts(configuredStreamHosts);
+				const maxPlaybackAddresses = siteCapabilities && siteCapabilities.max_playback_addresses
+					? siteCapabilities.max_playback_addresses
+					: DEFAULT_MAX_PLAYBACK_ADDRESSES;
+				if (playbackAddressCount(playbackTargetURL, streamHostValues) > maxPlaybackAddresses) {
+					Toast.error('播放回源地址和播放节点总数超过上限');
+					return;
+				}
 			const nextDynamicProfile = normalizeDynamicProfile(dynamicProfileSelect?.value || dynamicPolicy.dynamic_profile);
 			const nextDynamicPolicy = {
 				dynamic_discovery_enabled: dynamicEnabledInput?.checked === true,
@@ -1961,7 +1981,7 @@ async function showSiteModal(site) {
 	      playback_target_url: playbackTargetURL,
       playback_mode: isEdit ? String(site.playback_mode || 'direct') : 'direct',
 		main_video_stream_mode: mainVideoModeSelect.value,
-		stream_hosts: configuredStreamHosts.map(h => String(h || '').trim()).filter(Boolean),
+		stream_hosts: streamHostValues,
 			...ingressPayload,
 		upstream_headers: buildUpstreamHeaderPayload(upstreamHeaders),
       ua_mode: uaMode,
