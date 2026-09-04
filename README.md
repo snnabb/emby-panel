@@ -84,9 +84,13 @@ bash <(curl -fsSL https://raw.githubusercontent.com/snnabb/Meridian/master/insta
 # 安装；可在交互流程中配置面板 HTTPS 域名
 bash <(curl -fsSL https://raw.githubusercontent.com/snnabb/Meridian/master/install.sh) install
 
+# 非交互安装并自定义管理面板端口
+bash <(curl -fsSL https://raw.githubusercontent.com/snnabb/Meridian/master/install.sh) install \
+  --port 18090 -y
+
 # 非交互安装并配置面板域名
 bash <(curl -fsSL https://raw.githubusercontent.com/snnabb/Meridian/master/install.sh) install \
-  --domain panel.example.com --email admin@example.com -y
+  --port 18090 --domain panel.example.com --email admin@example.com -y
 
 # 更新；自动备份、健康检查，失败时回滚
 bash <(curl -fsSL https://raw.githubusercontent.com/snnabb/Meridian/master/install.sh) update
@@ -98,7 +102,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/snnabb/Meridian/master/insta
 bash <(curl -fsSL https://raw.githubusercontent.com/snnabb/Meridian/master/install.sh) uninstall
 ```
 
-Linux 可自动安装或复用 Nginx、Certbot，并为管理面板配置 HTTPS。生成的 Nginx 配置只代理管理端口，不读取或修改站点回源和独立监听端口。macOS 支持安装，但不支持自动域名配置。
+Linux 可自动安装或复用 Nginx、Certbot，并为管理面板配置 HTTPS。`--port` 支持 `1-65535`；首次安装默认使用 `9090`，对已有安装再次执行 `install --port PORT` 可切换面板端口。切换已有 HTTPS 面板时只更新 Meridian 管理的 `proxy_pass` 目标，会保留证书、443 配置和 Certbot 重定向。生成的 Nginx 配置只代理管理端口，不读取或修改站点回源和独立监听端口。macOS 支持安装，但不支持自动域名配置。
 
 </details>
 

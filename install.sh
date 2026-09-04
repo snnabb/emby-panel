@@ -14,6 +14,7 @@ SERVICE_NAME="${MERIDIAN_SERVICE_NAME:-meridian}"
 NGINX_CONFIG="${MERIDIAN_NGINX_CONFIG:-/etc/nginx/conf.d/meridian-panel.conf}"
 NGINX_ROOT="${MERIDIAN_NGINX_ROOT:-/etc/nginx}"
 BIN_NAME="meridian"
+DEFAULT_PANEL_PORT=9090
 COSIGN_VERSION="v2.6.4"
 SERVICE_USER="meridian"
 SERVICE_GROUP="meridian"
@@ -31,6 +32,7 @@ ASSUME_YES="${MERIDIAN_ASSUME_YES:-0}"
 PURGE_DATA=0
 DOMAIN_MODE="ask"
 REQUESTED_DOMAIN=""
+REQUESTED_PORT=""
 CERTBOT_EMAIL=""
 INITIAL_SETUP_TOKEN=""
 SETUP_TOKEN_ORIGIN=""
@@ -152,6 +154,25 @@ validate_db_path() {
 
 valid_version() {
     [[ "$1" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
+}
+
+valid_port() {
+    local port="${1:-}" normalized LC_ALL=C
+    [[ "$port" =~ ^[0-9]+$ ]] || return 1
+    normalized="${port#"${port%%[!0]*}"}"
+    [ -n "$normalized" ] || return 1
+    case "${#normalized}" in
+        1|2|3|4) return 0 ;;
+        5) [[ "$normalized" < "65536" ]] ;;
+        *) return 1 ;;
+    esac
+}
+
+normalize_port() {
+    local port="${1:-}"
+    valid_port "$port" || return 1
+    port="${port#"${port%%[!0]*}"}"
+    printf '%s\n' "$port"
 }
 
 version_gt() {
@@ -774,14 +795,15 @@ ensure_dynamic_route_key() {
 
 
 set_panel_env() {
-    local bind_addr="$1" domain="$2" proxies="$3" allow_insecure="$4" tmp_dir="$5" env_file tmp_file
+    local bind_addr="$1" domain="$2" proxies="$3" allow_insecure="$4" tmp_dir="$5" port="${6:-$(read_config_port)}" env_file tmp_file
     env_file=$(env_file_path) || return 1
+    port=$(normalize_port "$port") || return 1
     tmp_file="${tmp_dir}/panel.env"
     # $1 is an awk field reference, not a shell variable.
     # shellcheck disable=SC2016
-    as_root awk -F= '$1 != "PANEL_BIND_ADDR" && $1 != "PANEL_DOMAIN" && $1 != "TRUSTED_PROXY_CIDRS" && $1 != "ALLOW_INSECURE_HTTP" { print }' "$env_file" > "$tmp_file" || return 1
-    printf 'PANEL_BIND_ADDR=%s\nPANEL_DOMAIN=%s\nTRUSTED_PROXY_CIDRS=%s\nALLOW_INSECURE_HTTP=%s\n' \
-        "$bind_addr" "$domain" "$proxies" "$allow_insecure" >> "$tmp_file" || return 1
+    as_root awk -F= '$1 != "PORT" && $1 != "PANEL_BIND_ADDR" && $1 != "PANEL_DOMAIN" && $1 != "TRUSTED_PROXY_CIDRS" && $1 != "ALLOW_INSECURE_HTTP" { print }' "$env_file" > "$tmp_file" || return 1
+    printf 'PORT=%s\nPANEL_BIND_ADDR=%s\nPANEL_DOMAIN=%s\nTRUSTED_PROXY_CIDRS=%s\nALLOW_INSECURE_HTTP=%s\n' \
+        "$port" "$bind_addr" "$domain" "$proxies" "$allow_insecure" >> "$tmp_file" || return 1
     chmod 0600 "$tmp_file" || return 1
     install_env_file "$tmp_file" || return 1
 }
@@ -813,10 +835,10 @@ remove_loopback_proxies() {
 read_config_port() {
     local configured
     configured=$(read_env_value PORT)
-    if [[ "$configured" =~ ^[0-9]+$ ]] && [ "$configured" -ge 1 ] && [ "$configured" -le 65535 ]; then
+    if configured=$(normalize_port "$configured"); then
         printf '%s\n' "$configured"
     else
-        printf '9090\n'
+        printf '%s\n' "$DEFAULT_PANEL_PORT"
     fi
 }
 
@@ -856,7 +878,7 @@ ensure_service_user() {
 }
 
 prepare_data_and_config() {
-    local tmp_dir="$1" env_file secret upstream_header_key dynamic_route_key credential_key env_tmp
+    local tmp_dir="$1" env_file secret upstream_header_key dynamic_route_key credential_key env_tmp port
     validate_data_dir || return 1
     env_file=$(env_file_path) || return 1
     if as_root test -L "$env_file"; then
@@ -882,8 +904,10 @@ prepare_data_and_config() {
         credential_key=$(generate_distinct_secret "$secret" "$upstream_header_key" "$dynamic_route_key") || return 1
         INITIAL_SETUP_TOKEN=$(generate_distinct_secret "$secret" "$upstream_header_key" "$dynamic_route_key" "$credential_key") || return 1
         env_tmp="${tmp_dir}/meridian.env"
-        printf 'JWT_SECRET=%s\nUPSTREAM_HEADER_KEY=%s\nDYNAMIC_ROUTE_KEY=%s\nMERIDIAN_SECRET_KEY=%s\nSETUP_TOKEN=%s\nPORT=9090\nDB_PATH=%s/meridian.db\nPANEL_BIND_ADDR=127.0.0.1\nPANEL_DOMAIN=\nPANEL_ROUTE_DOMAIN=\nPANEL_TLS_ENABLED=false\nPANEL_TLS_CERT_FILE=\nPANEL_TLS_KEY_FILE=\nTRUSTED_PROXY_CIDRS=\nALLOW_INSECURE_HTTP=false\n' \
-            "$secret" "$upstream_header_key" "$dynamic_route_key" "$credential_key" "$INITIAL_SETUP_TOKEN" "$DATA_DIR" > "$env_tmp" || return 1
+        port="${REQUESTED_PORT:-$DEFAULT_PANEL_PORT}"
+        port=$(normalize_port "$port") || fail "面板端口无效: $port"
+        printf 'JWT_SECRET=%s\nUPSTREAM_HEADER_KEY=%s\nDYNAMIC_ROUTE_KEY=%s\nMERIDIAN_SECRET_KEY=%s\nSETUP_TOKEN=%s\nPORT=%s\nDB_PATH=%s/meridian.db\nPANEL_BIND_ADDR=127.0.0.1\nPANEL_DOMAIN=\nPANEL_ROUTE_DOMAIN=\nPANEL_TLS_ENABLED=false\nPANEL_TLS_CERT_FILE=\nPANEL_TLS_KEY_FILE=\nTRUSTED_PROXY_CIDRS=\nALLOW_INSECURE_HTTP=false\n' \
+            "$secret" "$upstream_header_key" "$dynamic_route_key" "$credential_key" "$INITIAL_SETUP_TOKEN" "$port" "$DATA_DIR" > "$env_tmp" || return 1
         chmod 0600 "$env_tmp" || return 1
         install_env_file "$env_tmp" || return 1
         SETUP_TOKEN_ORIGIN="generated"
@@ -1422,6 +1446,38 @@ server {
 NGINXEOF
 }
 
+update_managed_panel_proxy_port() {
+    local port="$1" output="$2"
+    port=$(normalize_port "$port") || return 1
+    as_root test -f "$NGINX_CONFIG" || return 1
+    as_root test -L "$NGINX_CONFIG" && return 1
+    as_root grep -Fqx "$NGINX_MARKER" "$NGINX_CONFIG" || return 1
+    # The marker is necessary but not sufficient: retain the same panel-vhost
+    # shape used by the installer before touching a managed file.
+    # shellcheck disable=SC2016
+    as_root grep -Fq 'proxy_set_header Host $host;' "$NGINX_CONFIG" || return 1
+
+    # Port changes must preserve Certbot's HTTPS servers and every other
+    # directive. Only a single numeric loopback proxy target from the managed
+    # panel template is eligible for replacement.
+    # shellcheck disable=SC2016
+    if ! LC_ALL=C as_root awk -v port="$port" '
+        {
+            line=$0
+            if (line ~ /^[[:space:]]*proxy_pass[[:space:]]+http:\/\/127\.0\.0\.1:[0-9]+;([[:space:]]*#.*)?[[:space:]]*$/) {
+                proxy_count++
+                sub(/http:\/\/127\.0\.0\.1:[0-9]+;/, "http://127.0.0.1:" port ";", line)
+            }
+            print line
+        }
+        END { exit (proxy_count == 1 ? 0 : 42) }
+    ' "$NGINX_CONFIG" > "$output"; then
+        rm -f -- "$output"
+        warn "Nginx 配置中未找到唯一的 Meridian 面板回源目标，拒绝修改端口"
+        return 1
+    fi
+}
+
 migrate_managed_nginx_redaction() {
     local work_dir backup migrated log_line redaction_state insert_definitions=0 preserve_backup=0
     log_line=$(canonical_nginx_redacted_log_format)
@@ -1655,6 +1711,69 @@ restart_meridian_and_health() {
     wait_for_health 20
 }
 
+configure_panel_port() {
+    local requested_port="$1" port current_port work_dir bind_addr domain proxies allow_insecure config_tmp
+    port=$(normalize_port "$requested_port") || {
+        warn "面板端口无效: $requested_port"
+        return 1
+    }
+    current_port=$(read_config_port)
+    if [ "$port" = "$current_port" ]; then
+        info "面板端口保持不变: $current_port"
+        return 0
+    fi
+
+    bind_addr=$(read_env_value PANEL_BIND_ADDR)
+    domain=$(read_env_value PANEL_DOMAIN)
+    proxies=$(read_env_value TRUSTED_PROXY_CIDRS)
+    allow_insecure=$(read_env_value ALLOW_INSECURE_HTTP)
+
+    if [ -n "$domain" ]; then
+        validate_nginx_config_path
+        if ! as_root test -f "$NGINX_CONFIG" || as_root test -L "$NGINX_CONFIG" \
+            || ! as_root grep -Fqx "$NGINX_MARKER" "$NGINX_CONFIG"; then
+            warn "已配置面板域名，但 Nginx 配置不是安装器管理的文件，拒绝只修改后端端口"
+            return 1
+        fi
+    fi
+
+    work_dir=$(mktemp -d)
+    chmod 0700 "$work_dir"
+    snapshot_panel_state "$work_dir" || { rm -rf -- "$work_dir"; return 1; }
+    begin_panel_transaction "$work_dir"
+
+    if ! set_panel_env "$bind_addr" "$domain" "$proxies" "$allow_insecure" "$work_dir" "$port"; then
+        warn "面板端口配置失败，正在恢复原配置"
+        rollback_panel_transaction
+        return 1
+    fi
+
+    if [ -n "$domain" ]; then
+        config_tmp="${work_dir}/meridian-panel.conf"
+        if ! update_managed_panel_proxy_port "$port" "$config_tmp" \
+            || ! as_root install -o root -g root -m 0644 "$config_tmp" "${NGINX_CONFIG}.new" \
+            || ! as_root mv -f "${NGINX_CONFIG}.new" "$NGINX_CONFIG" \
+            || ! nginx_test_and_reload; then
+            as_root rm -f -- "${NGINX_CONFIG}.new" 2>/dev/null || true
+            warn "Nginx 端口配置检查失败，正在恢复原配置"
+            rollback_panel_transaction
+            return 1
+        fi
+    fi
+
+    if is_systemd; then
+        if ! restart_meridian_and_health; then
+            warn "Meridian 使用新面板端口启动失败，正在恢复原配置"
+            rollback_panel_transaction
+            return 1
+        fi
+    else
+        warn "未检测到 systemd：面板端口已写入 ${port}，请重启手动管理的 Meridian 进程后生效"
+    fi
+    commit_panel_transaction
+    ok "面板端口已切换: ${current_port} -> ${port}"
+}
+
 configure_panel_domain() {
     local domain="$1" email="$2" work_dir port proxies config_tmp
     validate_nginx_config_path
@@ -1854,6 +1973,10 @@ do_install() {
             return 1
         fi
         rm -rf -- "$tmp_dir"
+        if [ -n "$REQUESTED_PORT" ]; then
+            configure_panel_port "$REQUESTED_PORT" \
+                || fail "面板端口修改失败；原配置已恢复"
+        fi
         print_setup_token_notice || return 1
         apply_domain_choice 1
         return 0
@@ -2238,7 +2361,7 @@ usage() {
 Meridian 一键安装工具
 
 用法:
-  install.sh install [--domain example.com] [--email EMAIL] [--no-domain] [-y]
+  install.sh install [--port PORT] [--domain example.com] [--email EMAIL] [--no-domain] [-y]
       首次安装最新版本；已安装时只补充或重新配置管理面板域名。
   install.sh update [-y]
       更新到最新 Release，自动备份、健康检查并在失败时回滚。
@@ -2250,7 +2373,8 @@ Meridian 一键安装工具
       显示本帮助。
 
 选项:
-  --domain DOMAIN  仅为管理面板配置 HTTPS 域名，固定代理到 127.0.0.1:9090（或 PORT）
+  --port PORT      管理面板监听端口，范围 1-65535；首次安装默认 9090，已有安装可安全切换
+  --domain DOMAIN  仅为管理面板配置 HTTPS 域名，代理到 127.0.0.1:PORT
   --email EMAIL    Certbot 证书邮箱，可留空
   --no-domain      不配置或取消安装器管理的面板域名
   -y, --yes        非交互确认；安装未指定域名时保留现有配置，首次安装则使用 IP
@@ -2300,6 +2424,14 @@ run_cli() {
                 REQUESTED_DOMAIN=$(normalize_domain "$2")
                 valid_domain "$REQUESTED_DOMAIN" || fail "域名格式无效"
                 DOMAIN_MODE="configure"
+                shift
+                ;;
+            --port|-p)
+                [ "$action" = "install" ] || fail "--port 仅用于 install"
+                [ "$#" -ge 2 ] || fail "--port 需要一个端口"
+                [ -z "$REQUESTED_PORT" ] || fail "端口选项不能重复"
+                REQUESTED_PORT=$(normalize_port "$2") \
+                    || fail "面板端口无效: $2（必须是 1-65535 的整数）"
                 shift
                 ;;
             --email)

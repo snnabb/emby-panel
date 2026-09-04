@@ -343,6 +343,36 @@ migrated_nginx_hash=$(sha256_file "$NGINX_CONFIG")
 assert_eq "$migrated_nginx_hash" "$(sha256_file "$NGINX_CONFIG")" 'idempotent Nginx migration'
 assert_eq '1' "$(grep -c '^validate$' "$nginx_migration_log")" 'idempotent migration skips reload'
 
+# Changing the panel port must only touch the managed loopback proxy target;
+# Certbot's HTTPS, certificate, redirect, and unrelated directives survive.
+panel_port_before="${TEST_ROOT}/nginx-port-before.conf"
+panel_port_after="${TEST_ROOT}/nginx-port-after.conf"
+cp "$NGINX_CONFIG" "$panel_port_before"
+update_managed_panel_proxy_port 18090 "$panel_port_after" \
+    || { echo 'FAIL: managed Nginx port update failed' >&2; exit 1; }
+assert_contains "$panel_port_after" 'proxy_pass http://127.0.0.1:18090;'
+assert_not_contains "$panel_port_after" 'proxy_pass http://127.0.0.1:9090;'
+assert_contains "$panel_port_after" 'listen 443 ssl; # managed by Certbot'
+assert_contains "$panel_port_after" 'ssl_certificate /etc/letsencrypt/live/panel.example.com/fullchain.pem; # managed by Certbot'
+assert_contains "$panel_port_after" 'return 301 https://$host$request_uri;'
+awk '!($0 ~ /^[[:space:]]*proxy_pass[[:space:]]+http:\/\/127\.0\.0\.1:[0-9]+;([[:space:]]*#.*)?[[:space:]]*$/)' \
+    "$panel_port_before" > "${TEST_ROOT}/nginx-port-before-without-proxy"
+awk '!($0 ~ /^[[:space:]]*proxy_pass[[:space:]]+http:\/\/127\.0\.0\.1:[0-9]+;([[:space:]]*#.*)?[[:space:]]*$/)' \
+    "$panel_port_after" > "${TEST_ROOT}/nginx-port-after-without-proxy"
+cmp -s "${TEST_ROOT}/nginx-port-before-without-proxy" "${TEST_ROOT}/nginx-port-after-without-proxy" \
+    || { echo 'FAIL: Nginx port update changed directives outside proxy_pass' >&2; exit 1; }
+
+# Ambiguous managed files are rejected without leaving a partial output.
+cp "$panel_port_before" "$NGINX_CONFIG"
+printf '    proxy_pass http://127.0.0.1:19090;\n' >> "$NGINX_CONFIG"
+ambiguous_port_output="${TEST_ROOT}/nginx-port-ambiguous.output"
+if update_managed_panel_proxy_port 20090 "$ambiguous_port_output"; then
+    echo 'FAIL: ambiguous managed Nginx proxy targets were accepted' >&2
+    exit 1
+fi
+[ ! -e "$ambiguous_port_output" ] || { echo 'FAIL: ambiguous Nginx update left output residue' >&2; exit 1; }
+cp "$panel_port_before" "$NGINX_CONFIG"
+
 # Complete-looking redaction components are still rejected before any rewrite
 # or reload unless the map is semantically canonical and the log_format is the
 # exact safe definition. These fixtures all satisfied the former substring
@@ -613,6 +643,7 @@ update_nginx_validation_log="${TEST_ROOT}/update-nginx-validation.log"
 nginx_test_and_reload() { printf 'validate\n' >> "$update_nginx_validation_log"; }
 DOMAIN_MODE='ask'
 REQUESTED_DOMAIN=''
+REQUESTED_PORT='18090'
 CERTBOT_EMAIL=''
 rm -rf -- "$INSTALL_DIR" "$DATA_DIR" "$BACKUP_DIR" "$NGINX_ROOT"
 
@@ -623,6 +654,8 @@ fi
 assert_eq 'v9.9.9' "$(get_current_version)" 'first installed version'
 assert_file "${DATA_DIR}/.env"
 assert_eq '127.0.0.1' "$(read_env_value PANEL_BIND_ADDR)" 'fresh IP bind'
+assert_eq '18090' "$(read_env_value PORT)" 'fresh install custom panel port'
+assert_contains "${TEST_ROOT}/install-first.log" '127.0.0.1:18090'
 upstream_header_key=$(read_env_value UPSTREAM_HEADER_KEY)
 if [ "${#upstream_header_key}" -lt 32 ]; then
     echo 'FAIL: fresh install must generate UPSTREAM_HEADER_KEY' >&2
@@ -653,6 +686,65 @@ for hidden_secret in "$jwt_secret" "$upstream_header_key" "$dynamic_route_key"; 
         exit 1
     fi
 done
+
+# Re-running install on an existing non-systemd installation persists a new
+# port and clearly tells the operator that the manually managed process needs a
+# restart.
+REQUESTED_PORT='19090'
+DOMAIN_MODE='ask'
+if ! (do_install) >"${TEST_ROOT}/install-existing-port.log" 2>&1; then
+    cat "${TEST_ROOT}/install-existing-port.log" >&2
+    exit 1
+fi
+assert_eq '19090' "$(read_env_value PORT)" 'existing install custom panel port'
+assert_contains "${TEST_ROOT}/install-existing-port.log" '请重启手动管理的 Meridian 进程后生效'
+REQUESTED_PORT=''
+
+# A systemd-managed port switch updates the existing HTTPS vhost in place and
+# rolls back both files when the new service health check fails.
+port_integration_tmp=$(mktemp -d "${TEST_ROOT}/panel-port.XXXXXX")
+set_panel_env '127.0.0.1' 'panel.example.com' '' 'false' "$port_integration_tmp" 19090
+rm -rf -- "$port_integration_tmp"
+write_legacy_managed_nginx
+port_systemd_log="${TEST_ROOT}/panel-port-systemd.log"
+: > "$port_systemd_log"
+if ! (
+    is_systemd() { return 0; }
+    install_env_file() { cp "$1" "$(env_file_path)"; }
+    systemctl() { printf '%s\n' "$*" >> "$port_systemd_log"; }
+    nginx_test_and_reload() { printf 'validate\n' >> "$port_systemd_log"; }
+    wait_for_health() { return 0; }
+    configure_panel_port 20090
+) >"${TEST_ROOT}/panel-port-success.log" 2>&1; then
+    cat "${TEST_ROOT}/panel-port-success.log" >&2
+    exit 1
+fi
+assert_eq '20090' "$(read_env_value PORT)" 'systemd panel port switch'
+assert_contains "$NGINX_CONFIG" 'proxy_pass http://127.0.0.1:20090;'
+assert_contains "$NGINX_CONFIG" 'ssl_certificate /etc/letsencrypt/live/panel.example.com/fullchain.pem; # managed by Certbot'
+assert_contains "$NGINX_CONFIG" 'return 301 https://$host$request_uri;'
+assert_contains "$port_systemd_log" 'restart meridian'
+
+cp "${DATA_DIR}/.env" "${TEST_ROOT}/panel-port-rollback.env"
+cp "$NGINX_CONFIG" "${TEST_ROOT}/panel-port-rollback.nginx"
+if (
+    is_systemd() { return 0; }
+    install_env_file() { cp "$1" "$(env_file_path)"; }
+    systemctl() { return 0; }
+    nginx_test_and_reload() { return 0; }
+    wait_for_health() { return 1; }
+    configure_panel_port 21090
+) >"${TEST_ROOT}/panel-port-rollback.log" 2>&1; then
+    echo 'FAIL: failed panel port health check unexpectedly succeeded' >&2
+    exit 1
+fi
+cmp -s "${DATA_DIR}/.env" "${TEST_ROOT}/panel-port-rollback.env" \
+    || { echo 'FAIL: panel port rollback did not restore .env' >&2; exit 1; }
+cmp -s "$NGINX_CONFIG" "${TEST_ROOT}/panel-port-rollback.nginx" \
+    || { echo 'FAIL: panel port rollback did not restore Nginx' >&2; exit 1; }
+port_cleanup_tmp=$(mktemp -d "${TEST_ROOT}/panel-port-cleanup.XXXXXX")
+set_panel_env '127.0.0.1' '' '' 'false' "$port_cleanup_tmp" 20090
+rm -rf -- "$port_cleanup_tmp" "$NGINX_CONFIG"
 
 # Existing valid encryption keys are immutable; an explicitly empty legacy key
 # is repaired, while ambiguous or weak non-empty values fail without rewriting
@@ -1263,6 +1355,7 @@ do_uninstall >"${TEST_ROOT}/uninstall-purge.log" 2>&1
 assert_dir "$BACKUP_DIR"
 
 help_text=$(usage)
+assert_contains <(printf '%s' "$help_text") '--port PORT'
 for command_name in install update password uninstall; do
     printf '%s' "$help_text" | grep -q "install.sh ${command_name}"
 done
@@ -1283,6 +1376,33 @@ for menu_item in '1) 安装' '2) 更新到最新版' '3) 修改管理员密码' 
 done
 if printf '%s' "$menu_text" | grep -Eq '^  [5-9]\)'; then
     echo 'FAIL: menu exposes more than four operations' >&2
+    exit 1
+fi
+
+# CLI parsing accepts both normalized custom ports and the short alias while
+# rejecting malformed values and actions that cannot change the listener.
+parsed_port=$(
+    do_install() { printf '%s\n' "$REQUESTED_PORT"; }
+    run_cli install --port 00080
+)
+assert_eq '80' "$parsed_port" 'CLI port normalization'
+parsed_short_port=$(
+    do_install() { printf '%s\n' "$REQUESTED_PORT"; }
+    run_cli install -p 18090
+)
+assert_eq '18090' "$parsed_short_port" 'CLI short port option'
+for invalid_port in 0 65536 abc -1 1.5 999999999999999999999999999999999; do
+    if (run_cli install --port "$invalid_port") >"${TEST_ROOT}/invalid-port.log" 2>&1; then
+        printf 'FAIL: invalid port was accepted: %s\n' "$invalid_port" >&2
+        exit 1
+    fi
+done
+if (run_cli install --port 18090 --port 19090) >"${TEST_ROOT}/duplicate-port.log" 2>&1; then
+    echo 'FAIL: duplicate port option was accepted' >&2
+    exit 1
+fi
+if (run_cli update --port 18090) >"${TEST_ROOT}/update-port.log" 2>&1; then
+    echo 'FAIL: update accepted an install-only port option' >&2
     exit 1
 fi
 
