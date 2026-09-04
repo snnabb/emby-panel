@@ -120,6 +120,8 @@ test('request log panel exposes only concrete resource-category filters and live
   assert.match(source, /class="request-log-ip mono"/);
   assert.match(source, /class="request-log-region"/);
   assert.match(source, /requestLogLoading/);
+  assert.match(source, /function renderRequestLogs\(\) \{\s*const page = document\.getElementById\('page-request-logs'\);\s*requestLogUserInteracting = false;/);
+  assert.match(source, /requestLogReloadQueued = false;\s*requestLogUserInteracting = false;/);
   assert.match(source, /previousScrollTop/);
   assert.match(source, /previousScrollTop \+ addedHeight/);
   assert.doesNotMatch(source, /if \(Router\.current === 'request-logs'\) loadRequestLogs\(\);/);
@@ -219,24 +221,27 @@ test('request log timeline heading aligns with timeline values', () => {
   assert.match(source, /\.request-log-table th\[data-log-field="timeline"\],\s*\.request-log-table td\[data-log-field="timeline"\]\s*\{\s*text-align:\s*right;\s*\}/);
 });
 
-test('request log UA width is applied to the live table and handles drag completion', () => {
+test('request log UA columns are fixed and cannot be resized', () => {
   const source = fs.readFileSync(
     path.join(__dirname, '..', 'web', 'static', 'js', 'pages', 'request-logs.js'),
     'utf8',
   );
-  assert.match(source, /table\.style\.setProperty\('--request-log-ua-width', cssWidth\)/);
-  assert.match(source, /col\.request-log-col-ua, col\.request-log-col-upstream-ua, th\[data-log-field="ua"\], th\[data-log-field="upstream-ua"\]/);
-  assert.match(source, /uaWidthInput\.oninput = applyUAWidth/);
-  assert.match(source, /uaWidthInput\.onchange = applyUAWidth/);
+  assert.doesNotMatch(source, /request-log-ua-width|requestLogUAWidth/);
+  assert.match(source, /class="request-log-table"/);
 });
 
-test('request log UA width slider stays compact', () => {
+test('request log UA columns stay 220px and show full text', () => {
   const source = fs.readFileSync(
     path.join(__dirname, '..', 'web', 'static', 'css', 'style.css'),
     'utf8',
   );
-  assert.match(source, /\.request-log-ua-width-control\s*\{[^}]*max-width:\s*380px;/s);
-  assert.match(source, /\.request-log-ua-width-control input\[type="range"\]\s*\{[^}]*max-width:\s*220px;/s);
+  assert.doesNotMatch(source, /request-log-ua-width-control|--request-log-ua-width/);
+  assert.match(source, /\.request-log-table col\.request-log-col-ua \{\s*width:\s*220px;/);
+  assert.match(source, /\.request-log-table col\.request-log-col-upstream-ua \{\s*width:\s*220px;/);
+  assert.match(source, /\.request-log-table th:nth-child\(5\) \{ width:\s*220px !important;/);
+  assert.match(source, /\.request-log-table th:nth-child\(6\) \{ width:\s*220px !important;/);
+  assert.match(source, /\.request-log-ua\s*\{[^}]*overflow:\s*visible;[^}]*white-space:\s*normal;[^}]*overflow-wrap:\s*anywhere;/s);
+  assert.match(source, /\.request-log-table td\[data-log-field="ua"\],\s*\.request-log-table td\[data-log-field="upstream-ua"\]\s*\{[^}]*overflow:\s*visible;/s);
 });
 
 test('request log filter chips keep centered labels and balanced spacing', () => {
@@ -257,7 +262,9 @@ test('mobile request log table uses fixed readable columns without overlap', () 
   assert.match(source, /\.request-log-table col\.request-log-col-category,\s*\.request-log-table th:nth-child\(2\)\s*\{\s*width:\s*144px !important;/s);
   assert.match(source, /\.request-log-table col\.request-log-col-status,\s*\.request-log-table th:nth-child\(3\)\s*\{\s*width:\s*76px !important;/s);
   assert.match(source, /\.request-log-table col\.request-log-col-ip,\s*\.request-log-table th:nth-child\(4\)\s*\{\s*width:\s*170px !important;/s);
-  assert.match(source, /\.request-log-table tbody tr\s*\{\s*height:\s*58px;/s);
+  assert.match(source, /\.request-log-table col\.request-log-col-ua,\s*\.request-log-table th:nth-child\(5\)\s*\{\s*width:\s*220px !important;/s);
+  assert.match(source, /\.request-log-table col\.request-log-col-upstream-ua,\s*\.request-log-table th:nth-child\(6\)\s*\{\s*width:\s*220px !important;/s);
+  assert.doesNotMatch(source, /\.request-log-table tbody tr\s*\{\s*height:\s*58px;/s);
   assert.match(source, /\.request-log-table th,\s*\.request-log-table td\s*\{[^}]*overflow:\s*hidden;[^}]*padding:\s*10px 12px;[^}]*font-size:\s*13px;[^}]*line-height:\s*1\.3;/s);
   assert.match(source, /\.request-log-category,\s*\.request-log-node,\s*\.request-log-status\s*\{\s*white-space:\s*nowrap;/s);
   assert.match(source, /\.request-log-table th\s*\{[^}]*font-size:\s*12px;[^}]*white-space:\s*nowrap;/s);

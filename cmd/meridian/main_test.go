@@ -150,12 +150,12 @@ func releasePort(port int) {
 
 func TestDedicatedPortUsesPanelTLSWhenConfigured(t *testing.T) {
 	app := newTestApp(t)
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("tls-upstream"))
 	}))
 	defer upstream.Close()
 
-	certificateServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+	certificateServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	defer certificateServer.Close()
 	app.pm.SetSiteTLSConfig(&tls.Config{Certificates: certificateServer.TLS.Certificates})
 
@@ -1606,7 +1606,7 @@ func TestSecurityHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse trusted proxies: %v", err)
 	}
-	handler := securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}), trustedProxies)
 	rr := httptest.NewRecorder()
@@ -1751,7 +1751,7 @@ func TestLoginCookieAuthAndCSRFProtection(t *testing.T) {
 		t.Fatalf("unsafe login cookie: %#v", cookie)
 	}
 
-	protected := app.authMiddleware(func(w http.ResponseWriter, _ *http.Request) {
+	protected := app.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
@@ -1834,6 +1834,40 @@ func TestLogoutClearsSessionCookie(t *testing.T) {
 	cookies := rr.Result().Cookies()
 	if len(cookies) != 1 || cookies[0].Name != sessionCookieName || cookies[0].MaxAge >= 0 || !cookies[0].HttpOnly || !cookies[0].Secure {
 		t.Fatalf("logout did not clear protected session cookie: %#v", cookies)
+	}
+}
+
+func TestLogoutDoesNotInvalidateOtherDeviceSessions(t *testing.T) {
+	app := newTestApp(t)
+	if _, err := app.db.CreateInitialUser("admin", "correct horse battery staple"); err != nil {
+		t.Fatalf("CreateInitialUser: %v", err)
+	}
+	token, err := generateToken(1, "admin")
+	if err != nil {
+		t.Fatalf("generateToken: %v", err)
+	}
+	before, err := app.db.SessionEpoch()
+	if err != nil {
+		t.Fatalf("SessionEpoch before logout: %v", err)
+	}
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "https://panel.example/api/auth/logout", nil)
+	req.Header.Set("Origin", "https://panel.example")
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
+	app.csrfMiddleware(app.handleLogout)(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("logout status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	after, err := app.db.SessionEpoch()
+	if err != nil {
+		t.Fatalf("SessionEpoch after logout: %v", err)
+	}
+	if after != before {
+		t.Fatalf("logout changed session epoch from %d to %d", before, after)
+	}
+	if _, _, err := app.authenticatedSession(req); err != nil {
+		t.Fatalf("logout invalidated the still-present other-device token: %v", err)
 	}
 }
 
@@ -2392,7 +2426,7 @@ func TestRedactUpstreamURLRemovesCredentialsPathsAndQueries(t *testing.T) {
 }
 
 func TestCORSAllowsSameOriginAndRejectsCrossOrigin(t *testing.T) {
-	handler := cors(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	handler := cors(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	same := httptest.NewRecorder()
 	sameReq := httptest.NewRequest(http.MethodGet, "http://panel.example/api/auth/check", nil)
@@ -2744,14 +2778,14 @@ func TestHandleSiteDiagExposesSeparatePlaybackTLS(t *testing.T) {
 	if got := mustBoolValue(t, playback, "show_tls"); !got {
 		t.Fatalf("playback show_tls = %v, want true", got)
 	}
-	if got := mustStringValue(t, playbackProbe, "kind"); got != "metadata_api" {
-		t.Fatalf("playback probe.kind = %q, want metadata_api", got)
+	if got := mustStringValue(t, playbackProbe, "kind"); got != "playback_reachability" {
+		t.Fatalf("playback probe.kind = %q, want playback_reachability", got)
 	}
 	if got := mustStringValue(t, playbackProbe, "method"); got != http.MethodGet {
 		t.Fatalf("playback probe.method = %q, want GET", got)
 	}
-	if got := mustStringValue(t, playbackProbe, "url"); got != playbackServer.URL+"/System/Info/Public" {
-		t.Fatalf("playback probe.url = %q, want metadata URL", got)
+	if got := mustStringValue(t, playbackProbe, "url"); got != playbackServer.URL+"/" {
+		t.Fatalf("playback probe.url = %q, want playback base URL", got)
 	}
 	if got := mustStringValue(t, playbackHealth, "status"); got != "offline" {
 		t.Fatalf("playback health.status = %q, want offline for an untrusted test certificate", got)
@@ -2767,6 +2801,128 @@ func TestHandleSiteDiagExposesSeparatePlaybackTLS(t *testing.T) {
 	}
 	if got := mustStringValue(t, playback, "effective_url"); got != playbackServer.URL {
 		t.Fatalf("playback effective_url = %q, want %q", got, playbackServer.URL)
+	}
+}
+
+func TestPlaybackDiagnosticUsesConfiguredBaseURL(t *testing.T) {
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/System/Info/Public" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer apiServer.Close()
+
+	playbackServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/media" {
+			t.Errorf("path = %q, want /media", r.URL.Path)
+		}
+		http.Redirect(w, r, apiServer.URL+"/System/Info/Public", http.StatusFound)
+	}))
+	defer playbackServer.Close()
+
+	app := newTestApp(t)
+	site, err := app.db.CreateSite("diag", freePort(t), apiServer.URL, playbackServer.URL+"/media", "direct", "[]", "infuse", 0, 0)
+	if err != nil {
+		t.Fatalf("CreateSite: %v", err)
+	}
+
+	result := diagnoseSite(site, app.pm)
+	playback := result.Upstreams.Playback
+	if playback.Health.Status != "online" {
+		t.Fatalf("playback health.status = %q, want online (error=%q)", playback.Health.Status, playback.Health.Error)
+	}
+	if playback.Health.EmbyVer != "" {
+		t.Fatalf("playback emby_version = %q, want empty", playback.Health.EmbyVer)
+	}
+	if got := playback.Health.Probe.Kind; got != "playback_reachability" {
+		t.Fatalf("playback probe.kind = %q, want playback_reachability", got)
+	}
+	if got := playback.Health.Probe.URL; got != playbackServer.URL+"/media" {
+		t.Fatalf("playback probe.url = %q, want %q", got, playbackServer.URL+"/media")
+	}
+	if got := playback.Health.Probe.HTTPStatus; got != http.StatusOK {
+		t.Fatalf("playback probe.http_status = %d, want 200 after the primary redirect", got)
+	}
+}
+
+func TestPlaybackDiagnosticFollowsPrimaryRedirectWithBase5xxAsReachable(t *testing.T) {
+	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/System/Info/Public" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(520)
+	}))
+	defer primary.Close()
+
+	playback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, primary.URL, http.StatusMovedPermanently)
+	}))
+	defer playback.Close()
+
+	app := newTestApp(t)
+	site, err := app.db.CreateSite("diag", freePort(t), primary.URL, playback.URL, "direct", "[]", "infuse", 0, 0)
+	if err != nil {
+		t.Fatalf("CreateSite: %v", err)
+	}
+
+	health := diagnoseSite(site, app.pm).Upstreams.Playback.Health
+	if health.Status != "reachable" {
+		t.Fatalf("playback health.status = %q, want reachable (warning=%q error=%q)", health.Status, health.Warning, health.Error)
+	}
+	if !strings.Contains(health.Warning, "520") {
+		t.Fatalf("playback warning = %q, want HTTP 520", health.Warning)
+	}
+	if health.Probe.HTTPStatus != 520 {
+		t.Fatalf("playback probe.http_status = %d, want 520", health.Probe.HTTPStatus)
+	}
+}
+
+func TestPlaybackDiagnosticTreatsHTTP5xxAsReachableWarning(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(520)
+	}))
+	defer server.Close()
+
+	health := probeTargetHealth(diagProbePlan{
+		BaseURL:       server.URL,
+		Kind:          "playback_reachability",
+		Method:        http.MethodGet,
+		CandidateURLs: []string{server.URL + "/"},
+	})
+	if health.Status != "reachable" {
+		t.Fatalf("status = %q, want reachable (warning=%q error=%q)", health.Status, health.Warning, health.Error)
+	}
+	if health.Error != "" {
+		t.Fatalf("error = %q, want empty for a reachable playback endpoint", health.Error)
+	}
+	if !strings.Contains(health.Warning, "520") {
+		t.Fatalf("warning = %q, want HTTP status", health.Warning)
+	}
+	if health.Probe.HTTPStatus != 520 {
+		t.Fatalf("probe.http_status = %d, want %d", health.Probe.HTTPStatus, 520)
+	}
+}
+
+func TestMetadataDiagnosticStillTreatsHTTP5xxAsError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer server.Close()
+
+	health := probeTargetHealth(diagProbePlan{
+		BaseURL:       server.URL,
+		Kind:          "metadata_api",
+		Method:        http.MethodGet,
+		CandidateURLs: []string{server.URL + "/System/Info/Public"},
+	})
+	if health.Status != "error" {
+		t.Fatalf("status = %q, want error (error=%q)", health.Status, health.Error)
+	}
+	if !strings.Contains(health.Error, "502") {
+		t.Fatalf("error = %q, want HTTP status", health.Error)
 	}
 }
 
@@ -6191,7 +6347,7 @@ func TestPublicHostRouterAndEncryptedHeaderAPI(t *testing.T) {
 		t.Fatalf("database stored plaintext upstream header: %s", stored)
 	}
 
-	panel := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("panel")) })
+	panel := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("panel")) })
 	router := app.publicHostRouter(panel)
 	proxied := httptest.NewRecorder()
 	proxiedRequest := httptest.NewRequest(http.MethodGet, "https://media.example.com/System/Info/Public", nil)
@@ -6443,7 +6599,7 @@ func TestPathIngressRoutesThroughPanelAndStripsPrefix(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = app.pm.StopSite(site.ID) })
 
-	panel := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusTeapot) })
+	panel := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusTeapot) })
 	router := app.publicHostRouter(panel)
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "http://panel.example/emby/Items/1?x=1", nil)
@@ -6490,7 +6646,7 @@ func TestPathIngressEmbeddedClientRouteStripsBothPrefixes(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = app.pm.StopSite(site.ID) })
 
-	router := app.publicHostRouter(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusTeapot) }))
+	router := app.publicHostRouter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusTeapot) }))
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "http://panel.example/sntp/emby/sntp/videos/1/original.mkv?token=ok", nil))
 	if recorder.Code != http.StatusNoContent {
@@ -6504,7 +6660,7 @@ func TestPathIngressEmbeddedClientRouteStripsBothPrefixes(t *testing.T) {
 func TestHandleSitesPathIngressRejectsDuplicatePrefix(t *testing.T) {
 	app := newTestApp(t)
 	app.panelListenPort = 9090
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer upstream.Close()
@@ -6552,7 +6708,7 @@ func TestHandleSitesPathIngressRejectsDuplicatePrefix(t *testing.T) {
 func TestHostOnlyStartSkipsReservedPortAndRoutesSharedHost(t *testing.T) {
 	app := newTestApp(t)
 	app.panelHost = "panel.example.com"
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("shared-upstream"))
 	}))
 	defer upstream.Close()
@@ -6582,7 +6738,7 @@ func TestHostOnlyStartSkipsReservedPortAndRoutesSharedHost(t *testing.T) {
 		t.Fatalf("host-only runtime = %#v, want handler with nil server/listener", inst)
 	}
 
-	router := app.publicHostRouter(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	router := app.publicHostRouter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("panel"))
 	}))
 	rr := httptest.NewRecorder()
@@ -6629,7 +6785,7 @@ func TestHostOnlyIngressOnPublicBindAllowsOnlyTrustedProxySources(t *testing.T) 
 	app.trustedProxies = []*net.IPNet{loopback}
 	app.pm.SetTrustedProxies(app.trustedProxies)
 	app.pm.SetHostOnlyIngressSafe(true)
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("trusted")) }))
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("trusted")) }))
 	defer upstream.Close()
 	site := Site{ID: 503, Name: "allowlisted-host", ListenPort: freePort(t), PublicHost: "allowlisted.example.com", IngressMode: ingressModeHost, TargetURL: upstream.URL, PlaybackMode: "direct", StreamHosts: "[]", UAMode: "infuse"}
 	if err := app.pm.StartSite(site); err != nil {
@@ -6657,7 +6813,7 @@ func TestHostOnlyIngressOnPublicBindAllowsOnlyTrustedProxySources(t *testing.T) 
 
 func TestBothIngressServesSharedHostAndDedicatedPort(t *testing.T) {
 	app := newTestApp(t)
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("both-upstream"))
 	}))
 	defer upstream.Close()
@@ -6758,7 +6914,7 @@ func TestHostOnlyStopCancelsInflightRequestAndFlushesFinalTraffic(t *testing.T) 
 func TestPublicHostRouterRejectsUnknownHostsWhenPanelDomainConfigured(t *testing.T) {
 	app := newTestApp(t)
 	app.panelHost = "panel.example.com"
-	panel := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("panel-secret")) })
+	panel := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("panel-secret")) })
 	router := app.publicHostRouter(panel)
 
 	for _, rawURL := range []string{"https://unknown.example.com/", "http://127.0.0.1:9090/"} {
@@ -6832,7 +6988,7 @@ func TestPublicHostRouterRejectsUnknownHostsWhenPanelDomainConfigured(t *testing
 func TestReservedDynamicRouteReturnsNotFoundWithoutProxying(t *testing.T) {
 	app := newTestApp(t)
 	var upstreamCalls atomic.Int64
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upstreamCalls.Add(1)
 		_, _ = w.Write([]byte("upstream"))
 	}))

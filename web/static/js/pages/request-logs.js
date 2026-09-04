@@ -5,8 +5,9 @@ let requestLogRefreshTimer = null;
 let requestLogLoadGeneration = 0;
 let requestLogLoading = false;
 let requestLogReloadQueued = false;
+let currentRenderedLogs = [];
+let requestLogUserInteracting = false;
 let requestLogDisplaySettings = { node: true, category: true, status: true, client_ip: true, ua: true, upstream_ua: true, backend_address: true, timeline: true };
-const requestLogUAWidthStorageKey = 'meridian-request-log-ua-width';
 
 function requestLogDateOnlyValue(value) {
   if (typeof meridianDateOnlyValue === 'function') return meridianDateOnlyValue(value);
@@ -29,39 +30,6 @@ function requestLogFormatDateTime(timestamp) {
 function requestLogFormatDate(timestamp) {
   if (typeof meridianFormatDate === 'function') return meridianFormatDate(timestamp);
   return new Date(Number(timestamp)).toLocaleDateString('zh-CN');
-}
-
-function requestLogNormalizeUAWidth(value) {
-  return Math.max(180, Math.min(420, Number(value) || 240));
-}
-
-function requestLogGetUAWidth() {
-  try {
-    return requestLogNormalizeUAWidth(window.localStorage.getItem(requestLogUAWidthStorageKey));
-  } catch (_) {
-    return 240;
-  }
-}
-
-function requestLogSetUAWidth(value) {
-  const width = requestLogNormalizeUAWidth(value);
-  const cssWidth = `${width}px`;
-  if (document.documentElement?.style?.setProperty) {
-    document.documentElement.style.setProperty('--request-log-ua-width', cssWidth);
-  }
-  const table = document.querySelector?.('.request-log-table');
-  if (table?.style?.setProperty) table.style.setProperty('--request-log-ua-width', cssWidth);
-  document.querySelectorAll?.('col.request-log-col-ua, col.request-log-col-upstream-ua, th[data-log-field="ua"], th[data-log-field="upstream-ua"]').forEach(node => {
-    node.style?.setProperty('width', cssWidth, 'important');
-  });
-  try {
-    window.localStorage.setItem(requestLogUAWidthStorageKey, String(width));
-  } catch (_) {}
-  return width;
-}
-
-function requestLogApplyUAWidth() {
-  return requestLogSetUAWidth(requestLogGetUAWidth());
 }
 
 function requestLogApplyDisplaySettings(settings) {
@@ -139,7 +107,7 @@ function requestLogStatusClass(status) {
 
 function renderRequestLogs() {
   const page = document.getElementById('page-request-logs');
-  requestLogApplyUAWidth();
+  requestLogUserInteracting = false;
   const today = Date.now();
   const yesterday = today - 24 * 60 * 60 * 1000;
   requestLogCategoryFilter = 'all';
@@ -192,12 +160,6 @@ function renderRequestLogs() {
         </select>
       </div>
 
-      <div class="request-log-ua-width-control">
-        <label for="request-log-ua-width">UA 列宽</label>
-        <input type="range" id="request-log-ua-width" min="180" max="420" step="10" value="${requestLogGetUAWidth()}">
-        <output id="request-log-ua-width-value">${requestLogGetUAWidth()} px</output>
-      </div>
-
       <div class="request-log-actions">
         <button type="button" class="request-log-action danger" id="request-cache-clear">
           <svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/><line x1="9" y1="10" x2="15" y2="16"/><line x1="15" y1="10" x2="9" y2="16"/></svg>
@@ -232,7 +194,6 @@ function renderRequestLogs() {
       </div>
     </section>
   `;
-  requestLogApplyUAWidth();
 
   const categorySelect = document.getElementById('request-log-category');
   if (categorySelect) categorySelect.onchange = event => {
@@ -253,26 +214,68 @@ function renderRequestLogs() {
   document.getElementById('request-log-refresh').onclick = loadRequestLogs;
   document.getElementById('request-log-clear').onclick = clearRequestLogs;
   document.getElementById('request-cache-clear').onclick = clearAssetCache;
-  const uaWidthInput = document.getElementById('request-log-ua-width');
-  if (uaWidthInput) {
-    const applyUAWidth = () => {
-      const width = requestLogSetUAWidth(uaWidthInput.value);
-      uaWidthInput.value = String(width);
-      const output = document.getElementById('request-log-ua-width-value');
-      if (output) output.textContent = `${width} px`;
-    };
-    uaWidthInput.oninput = applyUAWidth;
-    uaWidthInput.onchange = applyUAWidth;
-  }
   if (API.getSystemSettings) API.getSystemSettings().then(settings => {
     if (typeof meridianSetTimezoneName === 'function' && settings?.schedule_timezone) meridianSetTimezoneName(settings.schedule_timezone);
     if (typeof meridianSetTimezoneOffset === 'function') meridianSetTimezoneOffset(settings?.schedule_timezone_offset);
     requestLogApplyDisplaySettings(settings);
   }).catch(() => requestLogApplyDisplaySettings(null));
+  const scroller = document.querySelector ? document.querySelector('.request-log-table-scroll') : null;
+  if (scroller) {
+    scroller.addEventListener('mouseenter', () => { requestLogUserInteracting = true; });
+    scroller.addEventListener('mouseleave', () => { requestLogUserInteracting = false; });
+  }
+  const logBody = document.getElementById('request-log-body');
+  if (logBody && logBody.addEventListener) {
+    logBody.addEventListener('click', event => {
+      const row = event.target.closest ? event.target.closest('tr[data-log-id]') : null;
+      if (!row) return;
+      const logId = row.dataset.logId;
+      const next = row.nextElementSibling;
+      if (next && next.classList && next.classList.contains('log-detail-row')) {
+        next.remove();
+        row.classList.remove('log-row-expanded');
+        return;
+      }
+      document.querySelectorAll('.log-detail-row').forEach(r => r.remove());
+      document.querySelectorAll('.log-row-expanded').forEach(r => r.classList.remove('log-row-expanded'));
+      const entry = currentRenderedLogs.find(l => String(l.id) === String(logId));
+      if (!entry) return;
+      row.classList.add('log-row-expanded');
+      const detailTr = document.createElement('tr');
+      detailTr.className = 'log-detail-row';
+      const exactTime = entry.recorded_at_ms ? requestLogFormatDateTime(Number(entry.recorded_at_ms)) : '未写入时间线';
+      detailTr.innerHTML = `
+        <td colspan="8">
+          <div class="log-detail-card">
+            <div class="log-detail-header">
+              <span class="log-detail-path-badge">${esc(entry.method || 'GET')} ${esc(entry.path || '/')}</span>
+              <button type="button" class="log-detail-copy-btn">复制路径</button>
+            </div>
+            <div class="log-detail-grid">
+              <div class="log-detail-item"><span class="log-detail-label">客户端 IP & 地区</span><span class="log-detail-val">${esc(entry.client_ip || '—')} (${esc(entry.client_region || '未知')})</span></div>
+              <div class="log-detail-item"><span class="log-detail-label">后端回源目标</span><span class="log-detail-val">${esc(entry.backend_address || '—')}</span></div>
+              <div class="log-detail-item"><span class="log-detail-label">精准时间</span><span class="log-detail-val">${esc(exactTime)}</span></div>
+              <div class="log-detail-item"><span class="log-detail-label">客户端完整 UA</span><span class="log-detail-val">${esc(entry.user_agent || '—')}</span></div>
+              <div class="log-detail-item"><span class="log-detail-label">改写后上游 UA</span><span class="log-detail-val">${esc(entry.upstream_user_agent || '—')}</span></div>
+            </div>
+          </div>
+        </td>
+      `;
+      detailTr.querySelector?.('.log-detail-copy-btn')?.addEventListener('click', e => {
+        e.stopPropagation();
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(entry.path || '/').then(() => Toast.success('路径已复制'));
+        }
+      });
+      if (typeof row.after === 'function') row.after(detailTr);
+    });
+  }
   loadRequestLogs({ showLoading: true });
   if (requestLogRefreshTimer) clearInterval(requestLogRefreshTimer);
   requestLogRefreshTimer = setInterval(() => {
-    if (Router.current === 'request-logs') loadRequestLogs({ showLoading: false });
+    if (Router.current === 'request-logs' && !requestLogUserInteracting && !document.querySelector('.log-detail-row')) {
+      loadRequestLogs({ showLoading: false });
+    }
   }, 5000);
 }
 
@@ -287,6 +290,7 @@ function stopRequestLogRefresh() {
     requestLogSearchTimer = null;
   }
   requestLogReloadQueued = false;
+  requestLogUserInteracting = false;
 }
 
 function setRequestLogActivePill(containerId, activeButton) {
@@ -355,6 +359,7 @@ async function loadRequestLogs(options = {}) {
 function renderRequestLogRows(logs) {
   const body = document.getElementById('request-log-body');
   if (!body) return;
+  currentRenderedLogs = Array.isArray(logs) ? logs : [];
   if (!logs.length) {
     body.innerHTML = '<tr><td colspan="8" class="request-log-empty">当前条件下暂无日志</td></tr>';
     return;

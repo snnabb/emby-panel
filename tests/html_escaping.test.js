@@ -44,10 +44,12 @@ test('esc escapes every HTML-significant character', () => {
 });
 
 test('diagnostics probe type is escaped before it reaches innerHTML', () => {
-  const { probeLabel, renderHealthCard } = loadScripts('api.js', 'pages/diag.js');
+  const { probeLabel, renderHealthCard, statusText } = loadScripts('api.js', 'pages/diag.js');
   // probeLabel keeps returning the raw label; escaping belongs at the sink so a
   // caller that needs plain text is not handed double-escaped markup.
   assert.equal(probeLabel({ kind: 'metadata_api' }), 'Metadata / API 探针');
+  assert.equal(probeLabel({ kind: 'playback_reachability' }), '播放回源基址可达性探针');
+  assert.equal(statusText('reachable'), '地址可达');
 
   const html = renderHealthCard('主回源健康', '探针结果', { health: { probe: { kind: PAYLOAD } } }, 'stagger-2');
   assert.ok(!html.includes(PAYLOAD), 'probe.kind must not be interpolated raw');

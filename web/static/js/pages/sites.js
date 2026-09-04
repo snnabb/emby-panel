@@ -3,25 +3,28 @@ let siteSortingCleanup = null;
 let sitesLoadGeneration = 0;
 function renderSites() {
   const page = document.getElementById('page-sites');
-  page.innerHTML = `
-    <div class="sites-page-head fade-up">
-      <div><h1 class="section-title">站点管理</h1><p class="section-sub">管理所有 Emby 反代站点与回源配置</p></div>
-      <div class="toolbar-info" id="sites-count"></div>
-    </div>
-    <div class="page-toolbar sites-toolbar fade-up stagger-1">
-      <button class="btn-add" id="btn-add-site">
-        <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        添加站点
-      </button>
-      <label class="sites-search"><span class="sr-only">搜索站点</span><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="16" y1="16" x2="21" y2="21"/></svg><input id="sites-search" type="search" placeholder="搜索站点名称或回源地址"></label>
-      <button class="btn-ghost btn-test-all" id="btn-test-all-sites"><span aria-hidden="true">⌁</span> 全部测速</button>
-    </div>
-    <div class="sites-grid" id="sites-grid"></div>
-  `;
+  if (!page) return;
+  if (!page.querySelector('#sites-grid')) {
+    page.innerHTML = `
+      <div class="sites-page-head">
+        <div><h1 class="section-title">站点管理</h1><p class="section-sub">管理所有 Emby 反代站点与回源配置</p></div>
+        <div class="toolbar-info" id="sites-count"></div>
+      </div>
+      <div class="page-toolbar sites-toolbar">
+        <button class="btn-add" id="btn-add-site">
+          <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          添加站点
+        </button>
+        <label class="sites-search"><span class="sr-only">搜索站点</span><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="16" y1="16" x2="21" y2="21"/></svg><input id="sites-search" type="search" placeholder="搜索站点名称或回源地址"></label>
+        <button class="btn-ghost btn-test-all" id="btn-test-all-sites"><span aria-hidden="true">⌁</span> 全部测速</button>
+      </div>
+      <div class="sites-grid" id="sites-grid"></div>
+    `;
 
-  document.getElementById('btn-add-site').onclick = () => showSiteModal();
-  document.getElementById('btn-test-all-sites').onclick = testAllSitesLatency;
-  document.getElementById('sites-search').addEventListener('input', event => filterSiteCards(event.target.value));
+    document.getElementById('btn-add-site').onclick = () => showSiteModal();
+    document.getElementById('btn-test-all-sites').onclick = testAllSitesLatency;
+    document.getElementById('sites-search').addEventListener('input', event => filterSiteCards(event.target.value));
+  }
   loadSites();
 }
 
@@ -34,8 +37,10 @@ async function loadSites() {
     document.getElementById('sites-count').innerHTML = `共 <strong>${sites.length}</strong> 个站点`;
 
     const grid = document.getElementById('sites-grid');
+    const searchQuery = document.getElementById('sites-search')?.value || '';
     if (!sites || sites.length === 0) {
       grid.innerHTML = '<div style="text-align:center;color:var(--white-38);padding:60px;grid-column:1/-1">暂无站点，点击右上角添加</div>';
+      filterSiteCards(searchQuery);
       return;
     }
 
@@ -118,6 +123,7 @@ async function loadSites() {
       });
     });
     setupSiteSorting(grid);
+    filterSiteCards(searchQuery);
   } catch (e) {
     Toast.error('加载站点失败: ' + e.message);
   }
@@ -833,7 +839,7 @@ function renderDynamicEnableControl(capabilities, policy) {
 	const dynamicPolicy = normalizeDynamicSitePolicy(policy);
 	const enableEditable = dynamicCapabilities.recognized && (dynamicCapabilities.available || dynamicPolicy.dynamic_discovery_enabled);
 	return `
-		<label class="site-dynamic-toggle"><input type="checkbox" id="m-dynamic-enabled" ${dynamicPolicy.dynamic_discovery_enabled ? 'checked' : ''} ${enableEditable ? '' : 'disabled'}><span>启用自动发现</span></label>
+		<label class="site-dynamic-toggle" style="display:inline-flex;align-items:center;gap:10px;cursor:pointer;"><input type="checkbox" id="m-dynamic-enabled" style="margin:0;width:17px;height:17px;flex-shrink:0;cursor:pointer;" ${dynamicPolicy.dynamic_discovery_enabled ? 'checked' : ''} ${enableEditable ? '' : 'disabled'}><span style="line-height:1.2;">启用自动发现</span></label>
 	`;
 }
 
@@ -926,8 +932,15 @@ function renderDynamicObservationsPanel(supported) {
 	`;
 }
 
-function canAddPlaybackAddress(currentCount, maxPlaybackAddresses) {
-	return currentCount < maxPlaybackAddresses;
+function playbackAddressCount(playbackTargetURL, streamHosts) {
+	return normalizeStreamHosts(streamHosts).length + (String(playbackTargetURL || '').trim() ? 1 : 0);
+}
+
+function canAddPlaybackAddress(currentStreamHostCount, maxPlaybackAddresses, hasPlaybackTarget = false) {
+	const current = Number(currentStreamHostCount);
+	const maximum = Number(maxPlaybackAddresses);
+	if (!Number.isFinite(current) || !Number.isFinite(maximum) || current < 0 || maximum < 1) return false;
+	return current + (hasPlaybackTarget ? 1 : 0) < maximum;
 }
 
 function renderUpstreamHeaderRows(headers, upstreamHeadersAvailable) {
@@ -1316,7 +1329,7 @@ async function showSiteModal(site) {
 				? '请先在 TLS 页配置面板域名、泛域名并申请证书，完成后才能启用域名前缀。'
 				: '';
 	const dynamicPolicy = normalizeDynamicSitePolicy(isEdit ? site : {
-		dynamic_discovery_enabled: true,
+		dynamic_discovery_enabled: Boolean(dynamicCapabilities && dynamicCapabilities.available),
 		dynamic_profile: 'compatible',
 		dynamic_domain_rules: [],
 		dynamic_allow_https_downgrade: true,
@@ -1324,10 +1337,17 @@ async function showSiteModal(site) {
 	let dynamicRules = [...dynamicPolicy.dynamic_domain_rules];
   document.getElementById('modal-title').textContent = title;
   document.getElementById('modal-body').innerHTML = `
-    <div class="form-group">
-      <label>站点名称</label>
-      <input type="text" class="form-input" id="m-name" value="${isEdit ? esc(site.name) : ''}" placeholder="如：Emby-US-01" maxlength="100" required>
+    <div class="site-modal-tabs" id="site-modal-tabs" role="tablist">
+      <button type="button" class="site-modal-tab active" data-tab="basic" role="tab">基本配置</button>
+      <button type="button" class="site-modal-tab" data-tab="lines" role="tab">线路与回源</button>
+      <button type="button" class="site-modal-tab" data-tab="discovery" role="tab">自动发现</button>
+      <button type="button" class="site-modal-tab" data-tab="advanced" role="tab">高级策略</button>
     </div>
+    <div class="site-modal-panel active" id="site-panel-basic">
+      <div class="form-group">
+        <label>站点名称</label>
+        <input type="text" class="form-input" id="m-name" value="${isEdit ? esc(site.name) : ''}" placeholder="如：Emby-US-01" maxlength="100" required>
+      </div>
 	<div class="form-group">
 	  <label>入口模式</label>
 	  <select class="form-select modal-select" id="m-ingress-mode">
@@ -1355,6 +1375,8 @@ async function showSiteModal(site) {
 	  <input type="text" class="form-input" id="m-path-prefix" value="${isEdit ? esc(String(site.path_prefix || '').replace(/^\//, '')) : ''}" placeholder="如：emby" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="64">
 	  <div class="form-help">只填写一段路径，系统会自动补全为 /emby/；不能使用 api、js、css、_meridian 等系统路径。</div>
 	</div>
+    </div>
+    <div class="site-modal-panel" id="site-panel-lines">
 	<div class="form-group upstream-lines-card">
 	  <div class="upstream-lines-head">
 	    <div><label>线路列表</label><div class="form-help">主线路失败时按顺序切换，恢复后自动回切。</div></div>
@@ -1378,10 +1400,18 @@ async function showSiteModal(site) {
 	  </div>
 		  <div class="form-help">先选择 HTTP 或 HTTPS，再填写域名/IP 和可选 Base 路径。端口留空时自动使用 HTTPS 443 或 HTTP 80；最多 7 条备用线路。</div>
 		</div>
-		<div class="form-group site-form-wide">
+		<div class="form-group site-form-wide playback-targets-group">
 		  <label>播放回源地址（可选）</label>
 		  <input type="text" class="form-input" id="m-playback-target" value="${isEdit ? esc(site.playback_target_url || '') : ''}" placeholder="如：playback.example.com 或 https://playback.example.com:443" inputmode="url" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="2048">
 		  <div class="form-help">留空时播放请求跟随主线路；填写后，播放、转码和直链媒体请求优先使用此独立回源。未写协议时，:443 使用 HTTPS，其他端口默认 HTTP。</div>
+		  <div class="stream-hosts-wrap" style="margin-top: 14px;">
+		    <div class="stream-hosts-head" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+		      <span style="font-size: .84rem; font-weight: 600; color: var(--white-87);">额外播放/串流节点</span>
+		      <button type="button" class="btn-ghost" id="m-add-stream-host" style="font-size: .75rem; padding: 3px 9px;">+ 添加播放节点</button>
+		    </div>
+		    <div id="m-stream-hosts-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
+		    <div class="form-help">支持添加多个独立 Emby 媒体回源或 CDN 节点，满足多媒体服或分流串流需求。</div>
+		  </div>
 		</div>
 			<div class="form-group site-form-wide">
 			  <label>主回源固定请求头（可选）</label>
@@ -1390,6 +1420,8 @@ async function showSiteModal(site) {
 		  <div class="form-help">使用 UPSTREAM_HEADER_KEY 加密保存，不会回显；仅发送到主回源。</div>
 		  ${upstreamHeadersAvailable ? '' : '<div class="form-help" style="color:var(--orange)">当前部署未配置 UPSTREAM_HEADER_KEY，不能新增、重命名或修改 Header 值；仍可删除旧配置。配置密钥并重启后可恢复编辑。</div>'}
 		</div>
+    </div>
+    <div class="site-modal-panel" id="site-panel-discovery">
 		<div class="form-group site-form-wide site-dynamic-card">
 		  <div class="site-feature-heading"><div><label>自动发现</label>${renderDynamicStatus(dynamicCapabilities)}</div><span class="site-feature-badge">播放兼容</span></div>
 		  <div class="site-dynamic-row">
@@ -1411,6 +1443,8 @@ async function showSiteModal(site) {
 		    </div>
 		  </details>
 		</div>
+    </div>
+    <div class="site-modal-panel" id="site-panel-advanced">
 	    <details class="site-advanced-card site-form-wide" open>
       <summary class="site-advanced-summary">
         <span>高级设置</span>
@@ -1491,6 +1525,7 @@ async function showSiteModal(site) {
       </div>
       </div>
     </details>
+    </div>
   `;
 
   document.getElementById('modal-footer').innerHTML = `
@@ -1498,7 +1533,19 @@ async function showSiteModal(site) {
     <button class="btn-modal primary" id="m-submit">${isEdit ? '保存' : '创建'}</button>
   `;
 
-		document.getElementById('m-cancel').addEventListener('click', closeModal);
+  if (typeof document.querySelectorAll === 'function') {
+    document.querySelectorAll('.site-modal-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.site-modal-tab').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.site-modal-panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        const panel = document.getElementById('site-panel-' + btn.dataset.tab);
+        if (panel) panel.classList.add('active');
+      });
+    });
+  }
+
+  document.getElementById('m-cancel').addEventListener('click', closeModal);
 
 	const bindUpstreamLineInputs = (schemeInput, addressInput, portInput, onChange) => {
 		if (!schemeInput || !addressInput || !portInput) return;
@@ -1821,6 +1868,53 @@ async function showSiteModal(site) {
     if (inputs.length) inputs[inputs.length - 1].focus();
   };
 
+  let configuredStreamHosts = isEdit ? normalizeStreamHosts(site.stream_hosts) : [];
+  const playbackTargetInput = document.getElementById('m-playback-target');
+  function renderStreamHostRows() {
+    const container = document.getElementById('m-stream-hosts-list');
+    if (!container) return;
+    if (!configuredStreamHosts.length) {
+      container.innerHTML = '<div style="font-size: .78rem; color: var(--white-38); padding: 4px 0;">暂无额外播放节点（按需添加）</div>';
+      return;
+    }
+    container.innerHTML = configuredStreamHosts.map((host, idx) => `
+      <div class="stream-host-row" style="display: flex; gap: 8px; align-items: center;">
+        <input type="text" class="form-input m-stream-host-input" data-idx="${idx}" value="${esc(host)}" placeholder="如：https://stream2.example.com:443" inputmode="url" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="2048" style="flex: 1;">
+        <button type="button" class="btn-ghost danger m-remove-stream-host" data-idx="${idx}" style="padding: 6px 12px; font-size: .76rem; min-height: 38px;">删除</button>
+      </div>
+    `).join('');
+    container.querySelectorAll('.m-remove-stream-host').forEach(btn => {
+      btn.onclick = () => {
+        const idx = Number(btn.dataset.idx);
+        configuredStreamHosts.splice(idx, 1);
+        renderStreamHostRows();
+      };
+    });
+    container.querySelectorAll('.m-stream-host-input').forEach(input => {
+      input.oninput = () => {
+        const idx = Number(input.dataset.idx);
+        configuredStreamHosts[idx] = input.value.trim();
+      };
+    });
+  }
+
+  const addStreamHostButton = document.getElementById('m-add-stream-host');
+  if (addStreamHostButton) {
+    addStreamHostButton.onclick = () => {
+      const maxLimit = siteCapabilities && siteCapabilities.max_playback_addresses ? siteCapabilities.max_playback_addresses : 128;
+      const hasPlaybackTarget = Boolean(playbackTargetInput && playbackTargetInput.value.trim());
+      if (!canAddPlaybackAddress(configuredStreamHosts.length, maxLimit, hasPlaybackTarget)) {
+        Toast.error('已达到最大播放节点数量上限');
+        return;
+      }
+      configuredStreamHosts.push('');
+      renderStreamHostRows();
+      const inputs = document.querySelectorAll('.m-stream-host-input');
+      if (inputs.length) inputs[inputs.length - 1].focus();
+    };
+  }
+  renderStreamHostRows();
+
   document.getElementById('m-submit').onclick = async () => {
     const uaMode = uaSelect.value;
     const customUAPayload = buildCustomUAPayload(
@@ -1837,12 +1931,20 @@ async function showSiteModal(site) {
 		  siteCapabilities.route_domain,
 		  pathPrefixInput.value,
 		);
-			const primaryTargetURL = joinUpstreamTargetAddress(
+				const primaryTargetURL = joinUpstreamTargetAddress(
 				document.getElementById('m-target-scheme').value,
 				document.getElementById('m-target-address').value,
 				document.getElementById('m-target-port').value,
-			);
-			const playbackTargetURL = document.getElementById('m-playback-target').value.trim();
+				);
+				const playbackTargetURL = playbackTargetInput ? playbackTargetInput.value.trim() : '';
+				const streamHostValues = normalizeStreamHosts(configuredStreamHosts);
+				const maxPlaybackAddresses = siteCapabilities && siteCapabilities.max_playback_addresses
+					? siteCapabilities.max_playback_addresses
+					: DEFAULT_MAX_PLAYBACK_ADDRESSES;
+				if (playbackAddressCount(playbackTargetURL, streamHostValues) > maxPlaybackAddresses) {
+					Toast.error('播放回源地址和播放节点总数超过上限');
+					return;
+				}
 			const nextDynamicProfile = normalizeDynamicProfile(dynamicProfileSelect?.value || dynamicPolicy.dynamic_profile);
 			const nextDynamicPolicy = {
 				dynamic_discovery_enabled: dynamicEnabledInput?.checked === true,
@@ -1879,7 +1981,7 @@ async function showSiteModal(site) {
 	      playback_target_url: playbackTargetURL,
       playback_mode: isEdit ? String(site.playback_mode || 'direct') : 'direct',
 		main_video_stream_mode: mainVideoModeSelect.value,
-		stream_hosts: isEdit ? normalizeStreamHosts(site.stream_hosts) : [],
+		stream_hosts: streamHostValues,
 			...ingressPayload,
 		upstream_headers: buildUpstreamHeaderPayload(upstreamHeaders),
       ua_mode: uaMode,

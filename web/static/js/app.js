@@ -35,6 +35,14 @@
     setup_token_required: false,
   };
 
+  // Enforce dark-only theme; theme.js handles the initial apply but clear any
+  // stale light-mode preference from localStorage to avoid a flash on reload.
+  try { if (window.localStorage) window.localStorage.removeItem('meridian-theme'); } catch (_) {}
+  if (document.documentElement) {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    document.documentElement.style.colorScheme = 'dark';
+  }
+
   function resetModalScroll() {
     const overlay = document.getElementById('modal-overlay');
     const modal = document.getElementById('modal');
@@ -98,6 +106,7 @@
 
   const sidebarToggleEl = document.getElementById('sidebar-toggle');
   const sidebarDrawerCloseEl = document.getElementById('sidebar-drawer-close');
+  const sidebarBackdropEl = document.getElementById('sidebar-backdrop');
   const sidebarStorageKey = 'meridian-sidebar-expanded';
 
   function storedSidebarExpanded() {
@@ -136,6 +145,7 @@
     });
   }
   if (sidebarDrawerCloseEl) sidebarDrawerCloseEl.addEventListener('click', () => setSidebarExpanded(false, true));
+  if (sidebarBackdropEl) sidebarBackdropEl.addEventListener('click', () => setSidebarExpanded(false, true));
 
   const dismissMobileDrawer = () => {
     if (window.matchMedia && window.matchMedia('(max-width: 768px)').matches && shellEl.classList.contains('sidebar-expanded')) {

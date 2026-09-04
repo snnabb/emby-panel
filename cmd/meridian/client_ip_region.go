@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	defaultClientIPRegionEndpoint = "https://ipwho.is/{ip}?lang=zh-CN"
+	defaultClientIPRegionEndpoint = "https://api.ip.sb/geoip/{ip}"
 	clientIPRegionUnknown         = "未知"
 	clientIPRegionLocal           = "内网/保留地址"
 	clientIPRegionPending         = "查询中"
@@ -42,7 +42,7 @@ type clientIPRegionResolver struct {
 func newClientIPRegionResolver(endpoint string, client *http.Client) (*clientIPRegionResolver, error) {
 	endpoint = strings.TrimSpace(endpoint)
 	if endpoint == "" {
-		endpoint = "off"
+		endpoint = defaultClientIPRegionEndpoint
 	}
 	if strings.EqualFold(endpoint, "off") || strings.EqualFold(endpoint, "disabled") {
 		return nil, nil
@@ -154,12 +154,12 @@ func (r *clientIPRegionResolver) fetch(ip string) (string, error) {
 		return "", fmt.Errorf("invalid IP region response")
 	}
 	var payload struct {
-		Success bool   `json:"success"`
+		Success *bool  `json:"success"`
 		Country string `json:"country"`
 		Region  string `json:"region"`
 		City    string `json:"city"`
 	}
-	if err := json.Unmarshal(body, &payload); err != nil || !payload.Success {
+	if err := json.Unmarshal(body, &payload); err != nil || (payload.Success != nil && !*payload.Success) {
 		return "", fmt.Errorf("invalid IP region response")
 	}
 	parts := make([]string, 0, 3)

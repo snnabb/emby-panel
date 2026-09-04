@@ -214,18 +214,18 @@ function paintGlobalSettings(page = document.getElementById('page-global-setting
 
 function renderSystemUIForm(s) {
   return `<section class="settings-panel"><header><span>SYSTEM</span><h2>系统设置</h2><b>全局运行参数</b></header>
-    <p class="settings-panel-help">单向仅计 Meridian 发给客户端的出站流量；双向按入站 + 出站计费，每个方向的代理载荷字节只计算一次。</p>
+    <p class="settings-panel-help">单向计出站下载；双向计入站与出站流量。</p>
     <span class="settings-label">计费方向</span><div class="settings-choice" id="traffic-billing-mode-choice"><button data-setting-choice="outbound" class="${s.traffic_billing_mode === 'outbound' ? 'active' : ''}">单向（仅下载）</button><button data-setting-choice="bidirectional" class="${s.traffic_billing_mode !== 'outbound' ? 'active' : ''}">双向（下载 + 上传）</button></div>
   </section>
   <section class="settings-panel"><header><span>TRAFFIC RESET</span><h2>流量周期</h2><b>可重置或累计</b></header>
-    <p class="settings-panel-help">可按每月指定日期重置站点额度和面板周期流量，也可选择不重置。设置为 29、30 或 31 日时，短月自动使用该月最后一天。</p>
+    <p class="settings-panel-help">按每月指定日期重置周期流量；短月自动使用该月最后一天。</p>
     ${trafficResetDaySelect(s.traffic_reset_day == null ? 1 : s.traffic_reset_day)}
   </section>
   <section class="settings-panel"><header><span>RADIUS</span><h2>UI 圆角弧度</h2><b>0-24 px</b></header>
-    ${settingsNumber('setting-ui-radius', '圆角弧度', s.ui_radius, 0, 24, 'px', '保存后立即应用到管理面板，不影响代理业务。')}
+    ${settingsNumber('setting-ui-radius', '圆角弧度', s.ui_radius, 0, 24, 'px', '即时应用到管理面板。')}
   </section>
   <section class="settings-panel"><header><span>PROBE</span><h2>健康检查探测</h2><b>1000-180000 ms</b></header>
-    <div class="settings-grid">${settingsNumber('setting-probe-timeout', 'GET 超时时间', s.probe_timeout_ms, 1000, 180000, 'ms', '限制健康探测等待时间。')}${settingsNumber('setting-ping-cache', 'Ping 缓存时间', s.ping_cache_minutes, 0, 1440, '分钟', '设置为 0 可关闭短期复用。')}</div>
+    <div class="settings-grid">${settingsNumber('setting-probe-timeout', 'GET 超时时间', s.probe_timeout_ms, 1000, 180000, 'ms', '健康探测超时时间。')}${settingsNumber('setting-ping-cache', 'Ping 缓存时间', s.ping_cache_minutes, 0, 1440, '分钟', '0 为关闭复用。')}</div>
   </section>
   <section class="settings-panel"><header><span>SCHEDULE</span><h2>调度时区</h2><b>默认 Asia/Shanghai</b></header>
     ${timezoneSelect(s.schedule_timezone, s.schedule_timezone_offset)}
@@ -235,36 +235,72 @@ function renderSystemUIForm(s) {
 function renderLogSettingsForm(s) {
   return `<section class="settings-panel"><header><span>MASTER SWITCH</span><h2>日志功能总开关</h2><b>写入与查询统一控制</b></header>
     ${settingsCheck('setting-log-enabled', '开启日志写入与日志页显示', s.log_enabled)}
-    <span class="settings-label">日志写入模式</span><div class="settings-choice" id="log-level-choice"><button data-setting-choice="info" class="${s.log_level === 'info' ? 'active' : ''}">INFO</button><button data-setting-choice="error" class="${s.log_level === 'error' ? 'active' : ''}">ERROR</button></div>
+    <span class="settings-label">日志写入模式</span><div class="settings-choice" id="log-level-choice"><button data-setting-choice="info" class="${s.log_level === 'info' ? 'active' : ''}">INFO（常规记录）</button><button data-setting-choice="error" class="${s.log_level === 'error' ? 'active' : ''}">ERROR（仅异常错误）</button></div>
   </section>
-  <section class="settings-panel"><header><span>STORAGE</span><h2>日志队列与落盘</h2><b>运行时生效</b></header><div class="settings-grid">
-    ${settingsNumber('setting-log-retention', '日志保存', s.log_retention_days, 1, 365, '天')}${settingsNumber('setting-log-delay', '日志写入延迟', s.log_write_delay_minutes, 0, 60, '分钟')}
-    ${settingsNumber('setting-log-threshold', '提前写入阈值', s.log_flush_threshold, 1, 1000, '条')}${settingsNumber('setting-log-batch', '单批写入大小', s.log_batch_size, 1, 100, '条')}
-    ${settingsNumber('setting-log-retries', '写入重试次数', s.log_retry_count, 0, 10, '次')}${settingsNumber('setting-log-backoff', '重试退避', s.log_retry_backoff_ms, 0, 5000, 'ms')}
-    ${settingsNumber('setting-log-lease', '定时任务租约时长', s.log_task_lease_ms, 1000, 900000, 'ms')}
-  </div></section>
-  <section class="settings-panel"><header><span>RESOURCE CATEGORIES</span><h2>记录哪些请求</h2><b>按需写入</b></header><p class="settings-panel-help">只开启排查时需要的类别，减少日志噪音。</p><div class="settings-check-grid">
-    ${settingsCheck('setting-write-playback', '播放信息', s.log_write_playback !== false)}${settingsCheck('setting-write-video', '视频与流媒体', s.log_write_video !== false)}
-    ${settingsCheck('setting-write-api', '常规 API', s.log_write_api !== false)}${settingsCheck('setting-write-auth', '用户认证', s.log_write_auth !== false)}
-    ${settingsCheck('setting-write-asset', '静态资源', s.log_write_asset !== false)}
-  </div><details class="settings-more"><summary>更多类别</summary><div class="settings-check-grid">
-    ${settingsCheck('setting-write-image', '图片海报', s.log_write_image === true)}${settingsCheck('setting-write-metadata', '媒体元数据', s.log_write_metadata === true)}
-    ${settingsCheck('setting-write-subtitle', '字幕', s.log_write_subtitle !== false)}${settingsCheck('setting-write-websocket', 'WebSocket', s.log_write_websocket !== false)}
-  </div></details></section>
-  <div class="settings-two-column"><section class="settings-panel"><header><span>WRITE</span><h2>日志字段写入</h2><b>仅影响新日志</b></header><p class="settings-panel-help">关闭不需要的字段可减少存储和页面噪音。</p><div class="settings-check-grid">
-    ${settingsCheck('setting-write-node', '节点', s.log_write_node !== false)}${settingsCheck('setting-write-status', '状态码', s.log_write_status !== false)}
-    ${settingsCheck('setting-write-ip', '客户端 IP', s.log_write_client_ip !== false)}${settingsCheck('setting-write-ua', '客户端 UA', s.log_write_ua !== false)}
-    ${settingsCheck('setting-write-backend-address', '后端地址', s.log_write_backend_address !== false)}
-  </div><details class="settings-more"><summary>更多字段</summary><div class="settings-check-grid">
-    ${settingsCheck('setting-write-category', '资源类别', s.log_write_category !== false)}${settingsCheck('setting-write-upstream-ua', '上游 UA', s.log_write_upstream_ua !== false)}${settingsCheck('setting-write-timeline', '时间线', s.log_write_timeline !== false)}
-  </div></details></section>
-  <section class="settings-panel"><header><span>DISPLAY</span><h2>日志字段展示</h2><b>仅影响日志页</b></header><p class="settings-panel-help">只保留排查时真正需要的列，其他字段可在“更多字段”中打开。</p><div class="settings-check-grid">
-    ${settingsCheck('setting-display-node', '节点', s.log_display_node !== false)}${settingsCheck('setting-display-status', '状态码', s.log_display_status !== false)}
-    ${settingsCheck('setting-display-ip', '客户端 IP', s.log_display_client_ip !== false)}${settingsCheck('setting-display-ua', '客户端 UA', s.log_display_ua !== false)}
-    ${settingsCheck('setting-display-backend-address', '后端地址', s.log_display_backend_address !== false)}
-  </div><details class="settings-more"><summary>更多字段</summary><div class="settings-check-grid">
-    ${settingsCheck('setting-display-category', '资源类别', s.log_display_category !== false)}${settingsCheck('setting-display-upstream-ua', '上游 UA', s.log_display_upstream_ua !== false)}${settingsCheck('setting-display-timeline', '时间线', s.log_display_timeline !== false)}
-  </div></details></section></div>${settingsSaveBar()}`;
+  <section class="settings-panel"><header><span>RETENTION</span><h2>日志保留天数</h2><b>自动清理过期数据</b></header>
+    <div class="settings-grid">
+      ${settingsNumber('setting-log-retention', '保存周期', s.log_retention_days, 1, 365, '天', '超过设定天数的历史记录将被自动清理。')}
+    </div>
+  </section>
+  <section class="settings-panel"><header><span>RESOURCE CATEGORIES</span><h2>记录请求类别</h2><b>按需记录，降低开销</b></header>
+    <div class="settings-check-grid">
+      ${settingsCheck('setting-write-playback', '播放与串流信息', s.log_write_playback !== false)}
+      ${settingsCheck('setting-write-video', '主视频流与分片', s.log_write_video !== false)}
+      ${settingsCheck('setting-write-api', '常规系统与 API', s.log_write_api !== false)}
+      ${settingsCheck('setting-write-auth', '用户认证登录', s.log_write_auth !== false)}
+      ${settingsCheck('setting-write-asset', '前端与静态资源', s.log_write_asset !== false)}
+    </div>
+  </section>
+  <details class="settings-panel settings-advanced-details" style="margin-top:14px;cursor:pointer;">
+    <summary style="font-size:.88rem;font-weight:600;color:var(--white-87);padding:4px 0;">▸ 高级队列与字段微调（存储队列、细粒度类型与展示列）</summary>
+    <div style="margin-top:16px;">
+      <h3 style="font-size:.84rem;margin:12px 0 8px;color:var(--white-60);">高级存储队列参数</h3>
+      <div class="settings-grid">
+        ${settingsNumber('setting-log-delay', '写入延迟', s.log_write_delay_minutes, 0, 60, '分钟')}
+        ${settingsNumber('setting-log-threshold', '提前写入阈值', s.log_flush_threshold, 1, 1000, '条')}
+        ${settingsNumber('setting-log-batch', '单批写入大小', s.log_batch_size, 1, 100, '条')}
+        ${settingsNumber('setting-log-retries', '写入重试次数', s.log_retry_count, 0, 10, '次')}
+        ${settingsNumber('setting-log-backoff', '重试退避', s.log_retry_backoff_ms, 0, 5000, 'ms')}
+        ${settingsNumber('setting-log-lease', '定时任务租约时长', s.log_task_lease_ms, 1000, 900000, 'ms')}
+      </div>
+      <h3 style="font-size:.84rem;margin:16px 0 8px;color:var(--white-60);">更多请求类别</h3>
+      <div class="settings-check-grid">
+        ${settingsCheck('setting-write-image', '图片海报', s.log_write_image === true)}
+        ${settingsCheck('setting-write-metadata', '媒体元数据', s.log_write_metadata === true)}
+        ${settingsCheck('setting-write-subtitle', '字幕文件', s.log_write_subtitle !== false)}
+        ${settingsCheck('setting-write-websocket', 'WebSocket 长连接', s.log_write_websocket !== false)}
+      </div>
+      <div class="settings-two-column" style="margin-top:16px;">
+        <div style="background:rgba(255,255,255,0.03);padding:14px;border-radius:12px;">
+          <h4 style="font-size:.82rem;margin:0 0 10px;color:var(--white-87);">写入数据库的字段</h4>
+          <div class="settings-check-grid">
+            ${settingsCheck('setting-write-node', '节点', s.log_write_node !== false)}
+            ${settingsCheck('setting-write-status', '状态码', s.log_write_status !== false)}
+            ${settingsCheck('setting-write-ip', '客户端 IP', s.log_write_client_ip !== false)}
+            ${settingsCheck('setting-write-ua', '客户端 UA', s.log_write_ua !== false)}
+            ${settingsCheck('setting-write-backend-address', '后端地址', s.log_write_backend_address !== false)}
+            ${settingsCheck('setting-write-category', '资源类别', s.log_write_category !== false)}
+            ${settingsCheck('setting-write-upstream-ua', '上游 UA', s.log_write_upstream_ua !== false)}
+            ${settingsCheck('setting-write-timeline', '时间线', s.log_write_timeline !== false)}
+          </div>
+        </div>
+        <div style="background:rgba(255,255,255,0.03);padding:14px;border-radius:12px;">
+          <h4 style="font-size:.82rem;margin:0 0 10px;color:var(--white-87);">日志列表展示的列</h4>
+          <div class="settings-check-grid">
+            ${settingsCheck('setting-display-node', '节点', s.log_display_node !== false)}
+            ${settingsCheck('setting-display-status', '状态码', s.log_display_status !== false)}
+            ${settingsCheck('setting-display-ip', '客户端 IP', s.log_display_client_ip !== false)}
+            ${settingsCheck('setting-display-ua', '客户端 UA', s.log_display_ua !== false)}
+            ${settingsCheck('setting-display-backend-address', '后端地址', s.log_display_backend_address !== false)}
+            ${settingsCheck('setting-display-category', '资源类别', s.log_display_category !== false)}
+            ${settingsCheck('setting-display-upstream-ua', '上游 UA', s.log_display_upstream_ua !== false)}
+            ${settingsCheck('setting-display-timeline', '时间线', s.log_display_timeline !== false)}
+          </div>
+        </div>
+      </div>
+    </div>
+  </details>
+  ${settingsSaveBar()}`;
 }
 
 function settingsSaveBar() { return '<div class="settings-save-bar"><button class="telegram-btn primary" type="button" id="settings-save">保存设置</button></div>'; }

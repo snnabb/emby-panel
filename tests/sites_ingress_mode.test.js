@@ -156,7 +156,7 @@ test('stream host normalization accepts the array API and legacy JSON strings', 
 });
 
 test('playback limit follows backend capabilities and has a safe compatibility default', () => {
-  const { normalizeSiteCapabilities, canAddPlaybackAddress } = loadHelpers();
+  const { normalizeSiteCapabilities, playbackAddressCount, canAddPlaybackAddress } = loadHelpers();
   const configured = normalizeSiteCapabilities({
     host_only_available: false,
     upstream_headers_available: false,
@@ -169,11 +169,21 @@ test('playback limit follows backend capabilities and has a safe compatibility d
   });
   assert.equal(canAddPlaybackAddress(99, configured.max_playback_addresses), true);
   assert.equal(canAddPlaybackAddress(100, configured.max_playback_addresses), false);
+  assert.equal(playbackAddressCount('', ['one.example']), 1);
+  assert.equal(playbackAddressCount('https://playback.example', ['one.example']), 2);
+  assert.equal(canAddPlaybackAddress(99, configured.max_playback_addresses, true), false);
+  assert.equal(canAddPlaybackAddress(99, configured.max_playback_addresses, false), true);
 
   const fallback = normalizeSiteCapabilities({});
   assert.equal(fallback.host_only_available, true);
   assert.equal(fallback.upstream_headers_available, true);
   assert.equal(fallback.max_playback_addresses, 128);
+});
+
+test('site refresh reapplies the current search query after rebuilding cards', () => {
+  const source = loadSitesSource();
+  assert.match(source, /const searchQuery = document\.getElementById\('sites-search'\)\?\.value \|\| '';/);
+  assert.match(source, /setupSiteSorting\(grid\);\s*filterSiteCards\(searchQuery\);/);
 });
 
 test('missing upstream header key disables edits but leaves deletion available', () => {

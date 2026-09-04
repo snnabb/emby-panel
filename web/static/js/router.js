@@ -85,9 +85,13 @@ const Router = {
       if (svg) icon.innerHTML = svg.outerHTML;
     }
 
-    document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
+    document.querySelectorAll('.page').forEach(page => {
+      page.classList.remove('active', 'page-entering');
+    });
     const target = document.getElementById('page-' + hash);
-    if (target) target.classList.add('active');
+    if (target) {
+      target.classList.add('active');
+    }
 
     const handler = this.routes[hash];
     if (handler) handler();

@@ -78,17 +78,26 @@ function renderAccount() {
           </div>
           <div class="form-group">
             <label for="account-current-password">当前密码</label>
-            <input class="form-input" id="account-current-password" type="password" maxlength="72" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false" required>
+            <div class="secret-input-wrap">
+              <input class="form-input" id="account-current-password" type="password" maxlength="72" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false" required>
+              <button type="button" class="secret-toggle" data-toggle-target="account-current-password" aria-label="显示当前密码">显示</button>
+            </div>
           </div>
           <div class="account-password-grid">
             <div class="form-group">
               <label for="account-new-password">新密码</label>
-              <input class="form-input" id="account-new-password" type="password" maxlength="72" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="不修改请留空">
+              <div class="secret-input-wrap">
+                <input class="form-input" id="account-new-password" type="password" maxlength="72" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="不修改请留空">
+                <button type="button" class="secret-toggle" data-toggle-target="account-new-password" aria-label="显示新密码">显示</button>
+              </div>
               <div class="form-help">如需修改，密码长度为 12–72 个字符。</div>
             </div>
             <div class="form-group">
               <label for="account-confirm-password">确认新密码</label>
-              <input class="form-input" id="account-confirm-password" type="password" maxlength="72" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="再次输入新密码">
+              <div class="secret-input-wrap">
+                <input class="form-input" id="account-confirm-password" type="password" maxlength="72" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="再次输入新密码">
+                <button type="button" class="secret-toggle" data-toggle-target="account-confirm-password" aria-label="显示确认密码">显示</button>
+              </div>
             </div>
           </div>
           <div class="account-form-actions">
@@ -98,7 +107,7 @@ function renderAccount() {
       </section>
 
       <section class="account-session-card">
-        <div><h2>退出登录</h2><p>退出当前设备上的面板登录状态。</p></div>
+        <div><h2>安全退出登录</h2><p>退出登录将清除当前设备 Cookie，其他设备的登录会话不受影响。</p></div>
         <button class="account-logout-button" id="account-logout" type="button">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 17l5-5-5-5M15 12H3M15 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4"/></svg>
           <span>退出登录</span>
@@ -144,6 +153,17 @@ function renderAccount() {
 
   document.getElementById('account-logout').addEventListener('click', () => {
     if (typeof window.logoutMeridian === 'function') window.logoutMeridian();
+  });
+
+  page.querySelectorAll('.secret-toggle[data-toggle-target]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const target = document.getElementById(btn.dataset.toggleTarget);
+      if (!target) return;
+      const isPass = target.type === 'password';
+      target.type = isPass ? 'text' : 'password';
+      btn.textContent = isPass ? '隐藏' : '显示';
+      btn.setAttribute('aria-pressed', isPass ? 'true' : 'false');
+    });
   });
 
   loadAccountPage();

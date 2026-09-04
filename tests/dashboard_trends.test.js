@@ -48,6 +48,16 @@ test('dashboard trend rendering clamps invalid values and bounds smoothing contr
   assert.match(dashboardSource, /bucketSeconds > 0 && bucketSeconds < 3600/);
 });
 
+test('dashboard binds trend controls after SSE cleanup and removes pointer handlers', () => {
+  assert.ok(
+    dashboardSource.indexOf('startDashSSE();') < dashboardSource.indexOf('setupDashboardTrendControls();'),
+    'SSE cleanup must happen before chart controls are registered',
+  );
+  assert.match(dashboardSource, /let dashboardTrendControlsCleanup = null;/);
+  assert.match(dashboardSource, /canvas\.removeEventListener\('pointermove'/);
+  assert.match(dashboardSource, /function stopDashSSE\(\) \{[\s\S]*dashboardTrendControlsCleanup/);
+});
+
 test('dashboard renders a numeric zero over the initial placeholder', () => {
   const element = { style: {}, textContent: '—' };
   const sandbox = {

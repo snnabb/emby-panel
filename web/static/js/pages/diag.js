@@ -64,8 +64,6 @@ async function runDiag() {
     const notes = [
       playbackNote(playback, primary),
       primaryProbeNote(primary),
-      '健康表示上游可达性与探针结果，不是完整业务可用性证明。',
-      'TLS 展示的是上游站点证书，不是 Meridian 自己监听端口的证书。',
     ].filter(Boolean);
 
     const cards = [
@@ -120,6 +118,7 @@ function renderFailoverCard(failovers, staggerClass) {
 }
 
 function renderDiagNotes(notes) {
+  if (!notes || !notes.length) return '';
   return `
     <div class="diag-card diag-card-wide fade-up stagger-2">
       <div class="diag-head">
@@ -143,6 +142,8 @@ function renderHealthCard(title, subtitle, upstream, staggerClass) {
   const probe = health.probe || {};
   const latency = typeof health.latency_ms === 'number' ? health.latency_ms : null;
   const latencyText = latency === null ? '--' : `${latency}ms`;
+  const probeMessage = health.error || health.warning || '';
+  const probeMessageClass = health.error ? 'bad' : 'warn';
 
   return `
     <div class="diag-card fade-up ${staggerClass}">
@@ -163,7 +164,7 @@ function renderHealthCard(title, subtitle, upstream, staggerClass) {
         <div class="diag-row"><span class="diag-key">探针类型</span><span class="diag-val">${esc(probeLabel(probe))}</span></div>
         <div class="diag-row"><span class="diag-key">探针请求</span><span class="diag-val diag-wrap">${diagText(probeRequestText(probe))}</span></div>
         ${typeof probe.http_status === 'number' && probe.http_status > 0 ? `<div class="diag-row"><span class="diag-key">探针响应</span><span class="diag-val">${probe.http_status}</span></div>` : ''}
-        ${health.error ? `<div class="diag-row"><span class="diag-key">探针结果</span><span class="diag-val bad diag-wrap">${esc(health.error)}</span></div>` : ''}
+        ${probeMessage ? `<div class="diag-row"><span class="diag-key">探针结果</span><span class="diag-val ${probeMessageClass} diag-wrap">${esc(probeMessage)}</span></div>` : ''}
       </div>
     </div>
   `;
@@ -288,6 +289,14 @@ function playbackNote(playback, primary) {
   }
 
   const probe = playback.health && playback.health.probe ? playback.health.probe : {};
+  if (probe.kind === 'playback_reachability') {
+    const probeText = probeRequestText(probe) || 'GET 播放回源基址探针';
+    const suffix = playback.show_tls ? '，并单独展示播放回源 TLS' : '';
+    if (playback.health && playback.health.status === 'reachable') {
+      return `播放回源是独立上游：${playback.effective_url || '--'}。${probeText} 已收到 HTTP 响应，但该基址没有通用的媒体健康接口；基址返回非 2xx 只能说明探针路径的结果，不能据此判定具体媒体流无法播放${suffix}。`;
+    }
+    return `播放回源是独立上游：${playback.effective_url || '--'}。当前健康块仅请求配置的播放回源基址（${probeText}），不会假设该地址提供 Emby Metadata / API${suffix}；HTTP 非 2xx 也只表示地址已到达，不代表完整播放一定成功。`;
+  }
   if (probe.kind === 'metadata_api' || probe.kind === 'reachability_fallback') {
     const probeText = probeRequestText(probe) || 'GET Metadata / API 探针';
     if (playback.show_tls) {
@@ -306,6 +315,7 @@ function probeLabel(probe) {
   if (!probe || !probe.kind) return '--';
   if (probe.kind === 'reachability_fallback') return '可达性回退探针';
   if (probe.kind === 'metadata_api') return 'Metadata / API 探针';
+  if (probe.kind === 'playback_reachability') return '播放回源基址可达性探针';
   return probe.kind;
 }
 
@@ -319,12 +329,13 @@ function probeRequestText(probe) {
 
 function statusClass(value) {
   if (value === 'online' || value === true) return 'good';
-  if (value === 'error') return 'warn';
+  if (value === 'error' || value === 'reachable') return 'warn';
   return 'bad';
 }
 
 function statusText(value) {
   if (value === 'online') return '在线';
+  if (value === 'reachable') return '地址可达';
   if (value === 'error') return '探针异常';
   return '离线';
 }
