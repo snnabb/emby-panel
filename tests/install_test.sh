@@ -1385,6 +1385,27 @@ if printf '%s' "$menu_text" | grep -Eq '^  [5-9]\)'; then
     exit 1
 fi
 
+# Interactive menu installation accepts a custom panel port and keeps the
+# command-line/default behavior when the prompt is left blank.
+menu_custom_port=$(
+    REQUESTED_PORT=''
+    do_install() { printf 'PORT=%s\n' "$REQUESTED_PORT"; }
+    printf '1\n18090\n' | main_menu | tail -n 1
+)
+assert_eq 'PORT=18090' "$menu_custom_port" 'interactive menu port'
+menu_default_port=$(
+    REQUESTED_PORT=''
+    do_install() { printf 'PORT=%s\n' "${REQUESTED_PORT:-<default>}"; }
+    printf '1\n\n' | main_menu | tail -n 1
+)
+assert_eq 'PORT=<default>' "$menu_default_port" 'interactive menu default port'
+menu_retry_port=$(
+    REQUESTED_PORT=''
+    do_install() { printf 'PORT=%s\n' "$REQUESTED_PORT"; }
+    printf '1\nnot-a-port\n19090\n' | main_menu | tail -n 1
+)
+assert_eq 'PORT=19090' "$menu_retry_port" 'interactive menu invalid port retry'
+
 # CLI parsing accepts both normalized custom ports and the short alias while
 # rejecting malformed values and actions that cannot change the listener.
 parsed_port=$(

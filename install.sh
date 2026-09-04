@@ -2381,7 +2381,22 @@ Meridian 一键安装工具
   --purge          卸载时删除数据目录；不会删除备份、Nginx、Certbot 或证书
 
 不带参数运行时进入四项菜单。
+选择“安装”后可交互输入管理面板端口；直接回车时，首次安装使用 9090，已有安装保留当前端口。
 USAGE
+}
+
+prompt_panel_port() {
+    local answer
+    while :; do
+        read -r -p "请输入管理面板端口（1-65535，直接回车使用默认行为）: " answer
+        if [ -z "$answer" ]; then
+            return 0
+        fi
+        if REQUESTED_PORT=$(normalize_port "$answer"); then
+            return 0
+        fi
+        warn "面板端口无效: $answer（必须是 1-65535 的整数）"
+    done
 }
 
 main_menu() {
@@ -2396,7 +2411,10 @@ main_menu() {
     printf '  0) 退出\n\n'
     read -r -p "请选择 [0-4]: " choice
     case "$choice" in
-        1) do_install ;;
+        1)
+            prompt_panel_port
+            do_install
+            ;;
         2) do_update ;;
         3) do_password ;;
         4) do_uninstall ;;

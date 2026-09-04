@@ -66,7 +66,7 @@ Meridian 把多站点反代、UA 身份、流量管控和故障诊断整合进�
 bash <(curl -fsSL https://raw.githubusercontent.com/snnabb/Meridian/master/install.sh)
 ```
 
-脚本会进入四项菜单：安装、更新、修改管理员密码、卸载。首次安装会自动补齐 `curl`、证书、校验和文本处理等基础依赖；若 Release 带 Sigstore 签名，脚本会下载并校验固定版本的临时 cosign，再验证 `SHA256SUMS` 签名，无需用户预装 cosign。Linux systemd 部署默认使用独立的非 root 用户。
+脚本会进入四项菜单：安装、更新、修改管理员密码、卸载。选择“安装”后可直接输入管理面板端口；留空时首次安装默认使用 `9090`，已有安装则保留当前端口。首次安装会自动补齐 `curl`、证书、校验和文本处理等基础依赖；若 Release 带 Sigstore 签名，脚本会下载并校验固定版本的临时 cosign，再验证 `SHA256SUMS` 签名，无需用户预装 cosign。Linux systemd 部署默认使用独立的非 root 用户。
 
 安装完成后：
 
