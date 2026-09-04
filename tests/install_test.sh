@@ -709,6 +709,9 @@ write_legacy_managed_nginx
 port_systemd_log="${TEST_ROOT}/panel-port-systemd.log"
 : > "$port_systemd_log"
 if ! (
+    as_root() {
+        if [ "$1" = install ]; then run_test_root_command "$@"; else "$@"; fi
+    }
     is_systemd() { return 0; }
     install_env_file() { cp "$1" "$(env_file_path)"; }
     systemctl() { printf '%s\n' "$*" >> "$port_systemd_log"; }
@@ -728,6 +731,9 @@ assert_contains "$port_systemd_log" 'restart meridian'
 cp "${DATA_DIR}/.env" "${TEST_ROOT}/panel-port-rollback.env"
 cp "$NGINX_CONFIG" "${TEST_ROOT}/panel-port-rollback.nginx"
 if (
+    as_root() {
+        if [ "$1" = install ]; then run_test_root_command "$@"; else "$@"; fi
+    }
     is_systemd() { return 0; }
     install_env_file() { cp "$1" "$(env_file_path)"; }
     systemctl() { return 0; }
